@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 Tim Riker
+# SPDX-License-Identifier: MIT
 """Lightweight ACME client wrapper to request certificates from Let's Encrypt.
 
 This module provides a high-level AcmeClient that can:

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 Tim Riker
+# SPDX-License-Identifier: MIT
 """Utility to walk CNAME chain and discover authoritative zone via SOA for a name.
 
 Usage:

@@ -1,3 +1,6 @@
+# Copyright (c) 2025 Tim Riker
+# SPDX-License-Identifier: MIT
+
 # Package metadata
 __version__ = '0.1.0'
 

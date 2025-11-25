@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 Tim Riker
+# SPDX-License-Identifier: MIT
 """RFC2136 DNS updater helpers with CNAME-following for ACME DNS-01.
 
 This module uses dnspython to resolve CNAMEs and perform TSIG-signed DNS updates

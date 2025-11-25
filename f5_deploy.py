@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 Tim Riker
+# SPDX-License-Identifier: MIT
 """Simple F5 BIG-IP deployer using the iControl REST API.
 
 This module tries to keep interactions minimal and uses the REST endpoints to

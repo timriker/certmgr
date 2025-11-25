@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright (c) 2025 Tim Riker
+# SPDX-License-Identifier: MIT
 """Command-line orchestration for obtaining and deploying certificates.
 
 Usage:
