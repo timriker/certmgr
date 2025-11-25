@@ -50,17 +50,17 @@ Quick start
 
 1. Create `credentials.yaml` (copy from `example.credentials.yaml`) and fill in
    real credentials.
-2. Edit `config.yaml` (copy from `example.config.yaml`) to list your certificates
-   , domains and F5 targets.
+2. Edit `config.yaml` (copy from `example.config.yaml`) to list your certificates,
+   domains and F5 targets.
 3. Install dependencies: pip install -r requirements.txt
 4. Run:
 
-  ./certmgr.py
+  ./certmgr.py --staging
 
    For testing, use the Let's Encrypt staging environment to avoid hitting
-   production rate limits:
+   production rate limits. Once this is working remove the --staging
 
-  ./certmgr.py --staging
+  ./certmgr.py
 
    The `--staging` flag points the ACME client at the staging directory. Use
    the staging option when you're testing automation; only switch to
