@@ -1,17 +1,14 @@
 certificates:
-  - name: example-com
+  - name: example.com
     domains:
-      - example.com
       - '*.example.com'
-    # optional per-certificate f5 targets (list of hostnames)
     f5_targets:
-      - f5-prod-1.example.com
-      - f5-prod-2.example.com
+      - lb-datacenter1-a.example.com
+      - lb-datacenter2-a.example.com
 
-  - name: example-net
+  - name: example.net
     domains:
-      - example.net
       - '*.example.net'
     f5_targets:
-      - f5-net-1.example.net
-      - f5-net-2.example.net
+      - lb-datacenter1-a.example.net
+      - lb-datacenter2-a.example.net

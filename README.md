@@ -9,9 +9,7 @@ Key points
   is a CNAME to some other zone, the TXT will be published where the CNAME
   points.
 - RFC2136 credentials (TSIG) and F5 credentials live in `credentials.yaml`.
-  Do NOT place RFC2136/TSIG parameters in `config.yaml` — keep them only in
-  `credentials.yaml` to avoid leaking secrets in configuration.
-- `config.yaml` (see `example_config.yaml`) declares zones and certificates.
+- certificates, domains and F5 targets  live in `config.yaml`.
 - The CLI will renew certificates that are missing or expire within the
   configured threshold (default 30 days).
 
