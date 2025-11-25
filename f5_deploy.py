@@ -9,11 +9,12 @@ from typing import Optional
 import requests
 import logging
 import urllib3
+from urllib3.exceptions import InsecureRequestWarning
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 
 log = logging.getLogger(__name__)
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+urllib3.disable_warnings(InsecureRequestWarning)
 
 
 class F5Deployer:
@@ -56,7 +57,7 @@ class F5Deployer:
         if r.status_code >= 400:
             r.raise_for_status()
 
-    def upload_file(self, host: str, content: bytes, filename: str, headers: dict = None) -> None:
+    def upload_file(self, host: str, content: bytes, filename: str, headers: Optional[dict] = None) -> None:
         """Upload file content to F5 file transfer endpoint."""
         url = f"https://{host}/mgmt/shared/file-transfer/uploads/{filename}"
         log.debug("Uploading file to %s as %s (%d bytes)", host, filename, len(content))
@@ -71,7 +72,7 @@ class F5Deployer:
             log.error("File upload failed: %s - %s", r.status_code, r.text)
         r.raise_for_status()
 
-    def install_key_from_file(self, host: str, name: str, filename: str, headers: dict = None) -> dict:
+    def install_key_from_file(self, host: str, name: str, filename: str, headers: Optional[dict] = None) -> dict:
         """Install a key from an uploaded file."""
         url = f"https://{host}/mgmt/tm/sys/crypto/key"
         data = {
@@ -87,7 +88,7 @@ class F5Deployer:
         r.raise_for_status()
         return r.json()
 
-    def install_cert_from_file(self, host: str, name: str, filename: str, headers: dict = None) -> dict:
+    def install_cert_from_file(self, host: str, name: str, filename: str, headers: Optional[dict] = None) -> dict:
         """Install a certificate from an uploaded file."""
         url = f"https://{host}/mgmt/tm/sys/crypto/cert"
         data = {
@@ -103,14 +104,14 @@ class F5Deployer:
         r.raise_for_status()
         return r.json()
 
-    def upload_key(self, host: str, key_pem: bytes, name: str, headers: dict = None) -> dict:
+    def upload_key(self, host: str, key_pem: bytes, name: str, headers: Optional[dict] = None) -> dict:
         # Upload as file first, then install
         # name already includes .key extension from deploy()
         filename = name if name.endswith('.key') else f"{name}.key"
         self.upload_file(host, key_pem, filename, headers)
         return self.install_key_from_file(host, name, filename, headers)
 
-    def upload_cert(self, host: str, cert_pem: bytes, name: str, headers: dict = None) -> dict:
+    def upload_cert(self, host: str, cert_pem: bytes, name: str, headers: Optional[dict] = None) -> dict:
         # Upload as file first, then install
         # name already includes .crt extension from deploy()
         filename = name if name.endswith('.crt') else f"{name}.crt"
@@ -118,7 +119,7 @@ class F5Deployer:
         return self.install_cert_from_file(host, name, filename, headers)
 
     def create_or_update_clientssl_profile(self, host: str, profile_name: str, cert_name: str, key_name: str,
-                                          parent_profile: str = "clientssl", headers: dict = None) -> None:
+                                          parent_profile: str = "clientssl", headers: Optional[dict] = None) -> None:
         """Create or update an SSL client profile based on a parent profile.
 
         Args:
@@ -221,6 +222,7 @@ class F5Deployer:
         try:
             url = f"https://{host}/mgmt/tm/sys/crypto/cert/{cert_name}"
             # Prefer token-based auth for reading cert info
+            token = None
             try:
                 token = self.create_token(host)
                 headers = {"X-F5-Auth-Token": token}
