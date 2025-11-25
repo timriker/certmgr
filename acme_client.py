@@ -201,14 +201,16 @@ class AcmeClient:
             log.error("Certificate validation failed: %s", e)
             # Try to get more details about which domains failed
             try:
-                order_resource = acme.poll(order.uri)
-                log.error("Order status: %s", order_resource.body.status)
-                for authz_uri in order_resource.body.authorizations:
-                    authz = acme.poll(authz_uri)
-                    log.error("Authorization for %s: %s", authz.body.identifier.value, authz.body.status)
-                    for chall in authz.body.challenges:
-                        if chall.status == 'invalid':
-                            log.error("  Challenge %s failed: %s", chall.chall.typ, chall.error)
+                order_uri = getattr(order, 'uri', None)
+                if order_uri:
+                    order_resource = acme.poll(order_uri)
+                    log.error("Order status: %s", order_resource.body.status)
+                    for authz_uri in order_resource.body.authorizations:
+                        authz = acme.poll(authz_uri)
+                        log.error("Authorization for %s: %s", authz.body.identifier.value, authz.body.status)
+                        for chall in authz.body.challenges:
+                            if chall.status == 'invalid':
+                                log.error("  Challenge %s failed: %s", chall.chall.typ, chall.error)
             except Exception as detail_err:
                 log.error("Could not get validation details: %s", detail_err)
             raise
