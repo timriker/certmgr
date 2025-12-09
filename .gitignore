@@ -1,5 +1,5 @@
 account.key
 certs
-config.yaml
-credentials.yaml
+config.yaml*
+credentials.yaml*
 __pycache__
