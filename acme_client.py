@@ -27,11 +27,12 @@ from cryptography.x509 import NameOID
 log = logging.getLogger(__name__)
 
 class AcmeClient:
-    def __init__(self, directory_url: str = "https://acme-v02.api.letsencrypt.org/directory"):
+    def __init__(self, directory_url: str = "https://acme-v02.api.letsencrypt.org/directory", dns_wait_seconds: int = 5):
         self.directory_url = directory_url
         # account key and client will be created lazily
         self.account_key = None
         self.client = None
+        self.dns_wait_seconds = dns_wait_seconds
 
     def generate_account_key(self, bits: int = 2048):
         key = rsa.generate_private_key(public_exponent=65537, key_size=bits)
@@ -147,7 +148,9 @@ class AcmeClient:
                 net = acme_client.ClientNetwork(jwk, account=acct_map)
                 acme = acme_client.ClientV2(directory, net)
         except Exception as e:
-            log.exception("account registration failed: %s", e)
+            log.error("account registration failed: %s", e)
+            print(f"ACME error: {e}")
+            return None, None, None
 
         # Debug: show what the network client thinks the account is (helps
         # diagnose missing kid header situations)
@@ -168,8 +171,8 @@ class AcmeClient:
                     return None, None, None
             except Exception:
                 pass
-            # If not an ACME error, re-raise
-            raise
+            print(f"ACME error: {e}")
+            return None, None, None
 
         # Handle authorizations and dns-01 challenges
         for authz in order.authorizations:
@@ -191,10 +194,10 @@ class AcmeClient:
             # Ask caller to publish the TXT record (may need CNAME handling there)
             publish_challenge(fqdn, validation)
 
-        # Wait for DNS propagation before notifying ACME server
+        # Wait for DNS propagation before validation
         import time
-        log.info("Waiting 5 seconds for DNS propagation...")
-        time.sleep(5)
+        log.info(f"Waiting {self.dns_wait_seconds} seconds for DNS propagation...")
+        time.sleep(self.dns_wait_seconds)
 
         # Now tell ACME server we are ready for each challenge
         for authz in order.authorizations:
@@ -215,21 +218,8 @@ class AcmeClient:
             return None, None, None
         except Exception as e:
             log.error("Certificate validation failed: %s", e)
-            # Try to get more details about which domains failed
-            try:
-                order_uri = getattr(order, 'uri', None)
-                if order_uri:
-                    order_resource = acme.poll(order_uri)
-                    log.error("Order status: %s", order_resource.body.status)
-                    for authz_uri in order_resource.body.authorizations:
-                        authz = acme.poll(authz_uri)
-                        log.error("Authorization for %s: %s", authz.body.identifier.value, authz.body.status)
-                        for chall in authz.body.challenges:
-                            if chall.status == 'invalid':
-                                log.error("  Challenge %s failed: %s", chall.chall.typ, chall.error)
-            except Exception as detail_err:
-                log.error("Could not get validation details: %s", detail_err)
-            raise
+            print(f"ACME error: {e}")
+            return None, None, None
 
         cert_pem = finalized.fullchain_pem.encode() if hasattr(finalized, 'fullchain_pem') else finalized.fullchain.encode()
         chain_pem = b""  # chain included in fullchain

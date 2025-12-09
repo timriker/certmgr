@@ -165,7 +165,7 @@ class F5Deployer:
             else:
                 r = requests.patch(url, auth=(self.username, self.password), json={"cert": cert_name, "key": key_name}, verify=self.verify)
             r.raise_for_status()
-            log.info("Updated SSL client profile %s on %s", profile_name, host)
+            log.debug("Updated SSL client profile %s on %s", profile_name, host)
         else:
             r.raise_for_status()
 

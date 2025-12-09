@@ -128,6 +128,7 @@ def main():
     parser.add_argument('--list', action='store_true',
                         help='List existing local certificates with their domains and expiration dates')
     parser.add_argument('--certs', type=str, help='Comma-delimited list of certificate names to process (e.g. dicm.org,example.com)')
+    parser.add_argument('--dns-wait-seconds', type=int, default=5, help='Seconds to wait for DNS propagation (default: 5)')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
@@ -149,7 +150,7 @@ def main():
     if args.staging:
         directory_url = "https://acme-staging-v02.api.letsencrypt.org/directory"
         log.info("Using Let's Encrypt STAGING directory: %s", directory_url)
-    acme = AcmeClient(directory_url=directory_url)
+    acme = AcmeClient(directory_url=directory_url, dns_wait_seconds=args.dns_wait_seconds)
 
     # We'll create per-certificate publish/remove closures inside the loop so
     # that each certificate can carry its own rfc2136/zone overrides. If a
@@ -213,14 +214,10 @@ def main():
                 log.warning("Certificate %s not found at %s, skipping", name, cert_path)
                 continue
             if not os.path.exists(key_path):
-                        if days == -9999:
-                            log.warning("Certificate %s is missing or invalid, will renew", name)
-                            need = True
-                        elif days <= args.days:
-                            log.info("Certificate %s expires in %d days (<= %d), will renew", name, days, args.days)
-                            need = True
-                        else:
-                            log.info("Certificate %s is valid for %d more days, skipping", name, days)
+                log.warning("Key for %s not found at %s, skipping", name, key_path)
+                continue
+            with open(cert_path, 'rb') as f:
+                cert_pem = f.read()
             with open(key_path, 'rb') as f:
                 key_pem = f.read()
 
@@ -329,7 +326,7 @@ def main():
                     base_fqdn = fqdn[2:]
                 target = resolve_cname_target(base_fqdn, server, key_name, key, algorithm)
                 zname = discover_zone_for_name(target, server, key_name, key, algorithm)
-                log.info("Publishing TXT record for %s (zone %s): %s", target, zname, txt)
+                log.info("Publishing TXT record %s as %s (zone %s): %s", fqdn, target, zname, txt)
                 update_txt_record(server, port, key_name, key, algorithm, zname, target, txt)
 
             def remove(fqdn):
@@ -350,7 +347,7 @@ def main():
                     base_fqdn = fqdn[2:]
                 target = resolve_cname_target(base_fqdn, server, key_name, key, algorithm)
                 zname = discover_zone_for_name(target, server, key_name, key, algorithm)
-                log.info("Removing TXT record for %s (zone %s)", target, zname)
+                log.info("Removing TXT record %s as %s (zone %s)", fqdn, target, zname)
                 try:
                     update_txt_record(server, port, key_name, key, algorithm, zname, target, "")
                 except Exception as e:
@@ -359,16 +356,15 @@ def main():
             try:
                 cert_pem, _, key_pem = acme.obtain_certificate(domains, publish, remove, account_key_path=args.account_key)
             except Error as e:
-                print(f"ACME error: {e}")
-                summary['errors'].append(f"ACME error for {name}: {e}")
+                err_msg = f"ACME error for {name}: {e}"
+                print(err_msg)
+                summary['errors'].append(err_msg)
                 continue
             # cert_pem is fullchain; save key and cert
-            # CSR creation returned a private key saved inside acme flow; for now
-            # the client wrote key to account; in create_csr we generated a key
-            # --- assume acme.obtain_certificate returned cert_pem and we saved key earlier
             if cert_pem is None:
-                log.warning(f"Certificate request failed for {name}; skipping file write and deployment.")
-                summary['errors'].append(f"Certificate request failed for {name}; no certificate issued.")
+                warn_msg = f"Certificate request failed for {name}; no certificate issued."
+                log.warning(warn_msg)
+                summary['errors'].append(warn_msg)
                 continue
             with open(cert_path, 'wb') as f:
                 f.write(cert_pem)
