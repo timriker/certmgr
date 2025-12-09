@@ -24,6 +24,7 @@ Options:
 import argparse
 import logging
 import os
+from acme.messages import Error
 import yaml
 from datetime import datetime, timezone
 from cryptography import x509
@@ -73,13 +74,26 @@ def ensure_dir(path):
 
 
 def days_until_expiry(pem_data: bytes) -> int:
-    cert = x509.load_pem_x509_certificate(pem_data)
-    not_after = cert.not_valid_after
-    # Ensure not_after is timezone-aware
-    if not_after.tzinfo is None:
-        not_after = not_after.replace(tzinfo=timezone.utc)
-    delta = not_after - datetime.now(timezone.utc)
-    return delta.days
+    try:
+        cert = x509.load_pem_x509_certificate(pem_data)
+        not_after = cert.not_valid_after
+        # Ensure not_after is timezone-aware
+        if not_after.tzinfo is None:
+            not_after = not_after.replace(tzinfo=timezone.utc)
+        delta = not_after - datetime.now(timezone.utc)
+        return delta.days
+    except ValueError:
+        # PEM is invalid or missing
+        return -9999
+        try:
+            cert = x509.load_pem_x509_certificate(pem_data)
+            not_after = cert.not_valid_after
+            now = datetime.now(timezone.utc)
+            delta = not_after - now
+            return delta.days
+        except ValueError:
+            # PEM is invalid or missing
+            return -9999
 
 
 def expand_domains(domains: list) -> list:
@@ -113,6 +127,7 @@ def main():
                         help='Deploy existing local certificates to F5 targets without requesting new certificates')
     parser.add_argument('--list', action='store_true',
                         help='List existing local certificates with their domains and expiration dates')
+    parser.add_argument('--certs', type=str, help='Comma-delimited list of certificate names to process (e.g. dicm.org,example.com)')
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO)
@@ -121,6 +136,9 @@ def main():
     creds = load_yaml(args.credentials)
 
     certificates = config.get('certificates', [])
+    if args.certs:
+        cert_names = [n.strip() for n in args.certs.split(',') if n.strip()]
+        certificates = [c for c in certificates if c['name'] in cert_names]
 
     certs_dir = os.path.join(SCRIPT_DIR, 'certs')
     if not args.dry_run:
@@ -195,12 +213,14 @@ def main():
                 log.warning("Certificate %s not found at %s, skipping", name, cert_path)
                 continue
             if not os.path.exists(key_path):
-                log.warning("Private key %s not found at %s, skipping", name, key_path)
-                continue
-
-            log.info("Deploying existing certificate %s to F5 targets", name)
-            with open(cert_path, 'rb') as f:
-                cert_pem = f.read()
+                        if days == -9999:
+                            log.warning("Certificate %s is missing or invalid, will renew", name)
+                            need = True
+                        elif days <= args.days:
+                            log.info("Certificate %s expires in %d days (<= %d), will renew", name, days, args.days)
+                            need = True
+                        else:
+                            log.info("Certificate %s is valid for %d more days, skipping", name, days)
             with open(key_path, 'rb') as f:
                 key_pem = f.read()
 
@@ -224,7 +244,8 @@ def main():
             log.info("Prepopulating TXT records for certificate %s", name)
             placeholder = f"prepopulate-{int(datetime.now(timezone.utc).timestamp())}"
             for d in domains:
-                base = d.lstrip('*.')
+                # Always use base domain for DNS-01 challenge
+                base = d[2:] if d.startswith('*.') else d
                 challenge_name = f"_acme-challenge.{base}"
                 try:
                     r = creds.get('rfc2136')
@@ -300,10 +321,14 @@ def main():
                 key_name = r.get('key_name')
                 key = r.get('key')
                 algorithm = r.get('algorithm')
-                target = resolve_cname_target(fqdn, server, key_name, key, algorithm)
-                # Discover authoritative zone by walking DNS (SOA/NS checks)
+                # Always use base domain for DNS-01 challenge
+                base_fqdn = fqdn
+                if fqdn.startswith("_acme-challenge.*."):
+                    base_fqdn = "_acme-challenge." + fqdn[len("_acme-challenge.*."):]
+                elif fqdn.startswith("*." ):
+                    base_fqdn = fqdn[2:]
+                target = resolve_cname_target(base_fqdn, server, key_name, key, algorithm)
                 zname = discover_zone_for_name(target, server, key_name, key, algorithm)
-                # Log the final target (after following any CNAME) and the TXT value
                 log.info("Publishing TXT record for %s (zone %s): %s", target, zname, txt)
                 update_txt_record(server, port, key_name, key, algorithm, zname, target, txt)
 
@@ -317,7 +342,13 @@ def main():
                 key_name = r.get('key_name')
                 key = r.get('key')
                 algorithm = r.get('algorithm')
-                target = resolve_cname_target(fqdn, server, key_name, key, algorithm)
+                # Always use base domain for DNS-01 challenge
+                base_fqdn = fqdn
+                if fqdn.startswith("_acme-challenge.*."):
+                    base_fqdn = "_acme-challenge." + fqdn[len("_acme-challenge.*."):]
+                elif fqdn.startswith("*." ):
+                    base_fqdn = fqdn[2:]
+                target = resolve_cname_target(base_fqdn, server, key_name, key, algorithm)
                 zname = discover_zone_for_name(target, server, key_name, key, algorithm)
                 log.info("Removing TXT record for %s (zone %s)", target, zname)
                 try:
@@ -326,10 +357,20 @@ def main():
                     log.warning("Failed to remove TXT record for %s: %s", target, e)
 
             cert_pem, _, key_pem = acme.obtain_certificate(domains, publish, remove, account_key_path=args.account_key)
+            try:
+                cert_pem, _, key_pem = acme.obtain_certificate(domains, publish, remove, account_key_path=args.account_key)
+            except Error as e:
+                print(f"ACME error: {e}")
+                summary['errors'].append(f"ACME error for {name}: {e}")
+                continue
             # cert_pem is fullchain; save key and cert
             # CSR creation returned a private key saved inside acme flow; for now
             # the client wrote key to account; in create_csr we generated a key
             # --- assume acme.obtain_certificate returned cert_pem and we saved key earlier
+            if cert_pem is None:
+                log.warning(f"Certificate request failed for {name}; skipping file write and deployment.")
+                summary['errors'].append(f"Certificate request failed for {name}; no certificate issued.")
+                continue
             with open(cert_path, 'wb') as f:
                 f.write(cert_pem)
             # save private key if returned
@@ -383,16 +424,16 @@ def main():
         if summary['deployed']:
             deployed_unique = list(set(summary['deployed']))
             print(f"Deployed certificates: {', '.join(deployed_unique)}")
-        if summary['errors']:
-            print(f"Errors encountered: {len(summary['errors'])}")
-            for err in summary['errors']:
-                print(f"  - {err}")
-
         if not (summary['renewed'] or summary['reordered'] or summary['deployed']):
             if summary['errors']:
                 print("No certificates were renewed or deployed due to errors.")
             else:
                 print("No certificates needed renewal. All certificates are up to date.")
+        # Always print errors at the end of the summary
+        if summary['errors']:
+            print(f"Errors encountered: {len(summary['errors'])}")
+            for err in summary['errors']:
+                print(f"  - {err}")
 
 if __name__ == '__main__':
     main()

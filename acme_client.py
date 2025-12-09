@@ -26,7 +26,6 @@ from cryptography.x509 import NameOID
 
 log = logging.getLogger(__name__)
 
-
 class AcmeClient:
     def __init__(self, directory_url: str = "https://acme-v02.api.letsencrypt.org/directory"):
         self.directory_url = directory_url
@@ -158,7 +157,19 @@ class AcmeClient:
             log.info("Client network account: <unrepresentable>")
 
         # Create order
-        order = acme.new_order(csr_pem=csr_pem)
+        try:
+            order = acme.new_order(csr_pem=csr_pem)
+        except Exception as e:
+            # Only show acme.messages.Error cleanly, suppress traceback
+            try:
+                from acme import messages
+                if isinstance(e, messages.Error):
+                    print(f"ACME error: {e}")
+                    return None, None, None
+            except Exception:
+                pass
+            # If not an ACME error, re-raise
+            raise
 
         # Handle authorizations and dns-01 challenges
         for authz in order.authorizations:
@@ -199,6 +210,9 @@ class AcmeClient:
         # After responding to all challenges, poll order until valid
         try:
             finalized = acme.poll_and_finalize(order)
+        except acme_errors.ValidationError as e:
+            print(f"ACME validation error: {e}")
+            return None, None, None
         except Exception as e:
             log.error("Certificate validation failed: %s", e)
             # Try to get more details about which domains failed
