@@ -356,7 +356,6 @@ def main():
                 except Exception as e:
                     log.warning("Failed to remove TXT record for %s: %s", target, e)
 
-            cert_pem, _, key_pem = acme.obtain_certificate(domains, publish, remove, account_key_path=args.account_key)
             try:
                 cert_pem, _, key_pem = acme.obtain_certificate(domains, publish, remove, account_key_path=args.account_key)
             except Error as e:
