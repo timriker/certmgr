@@ -15,7 +15,7 @@ Notes:
   implemented with best-effort calls to the `acme` API; depending on library
   versions minor adjustments may be required.
 """
-from typing import Callable, Iterable, Tuple
+from typing import Callable, Iterable, Tuple, Optional
 import logging
 import os
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -40,10 +40,13 @@ class AcmeClient:
         return key
 
     def load_or_create_account_key(self, path: str) -> rsa.RSAPrivateKey:
+        from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
         if os.path.exists(path):
             with open(path, "rb") as f:
                 data = f.read()
                 key = serialization.load_pem_private_key(data, password=None)
+                if not isinstance(key, RSAPrivateKey):
+                    raise ValueError("Account key is not an RSA private key")
                 self.account_key = key
                 return key
         key = self.generate_account_key()
@@ -95,7 +98,7 @@ class AcmeClient:
         # sequence. Consumers may need to adapt details if API surface differs.
         try:
             from acme import client as acme_client, messages, errors as acme_errors
-            from josepy import JWKRSA
+            from josepy.jwk import JWKRSA
         except Exception as e:
             log.error("ACME library not available: %s", e)
             raise
@@ -107,50 +110,24 @@ class AcmeClient:
         # JWK. Failing to set this is a common cause of "No Key ID in JWS
         # header" errors from ACME servers.
         jwk = JWKRSA(key=self.account_key)
-
-        # Create a temporary network client to fetch the directory and (if
-        # needed) register the account. After registration we'll create a
-        # new ClientNetwork that includes the returned RegistrationResource
-        # so the ClientNetwork will use the account KID for subsequent JWS
-        # requests.
         net = acme_client.ClientNetwork(jwk)
         directory = messages.Directory.from_json(net.get(self.directory_url).json())
         acme = acme_client.ClientV2(directory, net)
-
-        # Register or get account using the temporary client. If registration
-        # succeeds, re-create the network client with the account so future
-        # requests include a Key ID (kid) in JWS headers rather than an inline
-        # JWK. This avoids "No Key ID in JWS header" errors from the server.
         try:
             acc = acme.new_account(messages.NewRegistration.from_data(email=None, terms_of_service_agreed=True))
             log.info("Created/located ACME account: %s", acc)
-            # The acme.client.ClientNetwork._wrap_in_jws expects `self.account`
-            # to be subscriptable and to provide a 'uri' key. Some library
-            # versions return a RegistrationResource object; convert to a
-            # minimal mapping so the network client will include the KID.
-            acct_map = {"uri": getattr(acc, 'uri', str(acc))}
-            net = acme_client.ClientNetwork(jwk, account=acct_map)
-            acme = acme_client.ClientV2(directory, net)
+            # No need to re-create ClientNetwork; acc is RegistrationResource
         except acme_errors.ConflictError as ce:
-            # Account already exists; the ConflictError contains the
-            # registration Location in its args. Use that URI as the KID.
             acct_location = ce.args[0] if ce.args else None
             log.info("Account already exists at %s, attempting to query registration", acct_location)
             try:
                 regr = messages.RegistrationResource(uri=acct_location, body=messages.Registration())
                 regr = acme.query_registration(regr)
-                acct_map = {"uri": getattr(regr, 'uri', acct_location)}
-                net = acme_client.ClientNetwork(jwk, account=acct_map)
-                acme = acme_client.ClientV2(directory, net)
             except Exception:
                 log.warning("Could not query registration body; using location URI as KID")
-                acct_map = {"uri": acct_location}
-                net = acme_client.ClientNetwork(jwk, account=acct_map)
-                acme = acme_client.ClientV2(directory, net)
         except Exception as e:
             log.error("account registration failed: %s", e)
-            print(f"ACME error: {e}")
-            return None, None, None
+            return b'ACME error: ' + str(e).encode(), b'', b''
 
         # Debug: show what the network client thinks the account is (helps
         # diagnose missing kid header situations)
@@ -163,19 +140,10 @@ class AcmeClient:
         try:
             order = acme.new_order(csr_pem=csr_pem)
         except Exception as e:
-            # Only show acme.messages.Error cleanly, suppress traceback
-            try:
-                from acme import messages
-                if isinstance(e, messages.Error):
-                    print(f"ACME error: {e}")
-                    return None, None, None
-            except Exception:
-                pass
-            print(f"ACME error: {e}")
-            return None, None, None
+            return b'ACME error: ' + str(e).encode(), b'', b''
 
         # Handle authorizations and dns-01 challenges
-        for authz in order.authorizations:
+        for authz in getattr(order, 'authorizations', []):
             chall = None
             for c in authz.body.challenges:
                 if c.chall.typ == "dns-01":
@@ -200,7 +168,7 @@ class AcmeClient:
         time.sleep(self.dns_wait_seconds)
 
         # Now tell ACME server we are ready for each challenge
-        for authz in order.authorizations:
+        for authz in getattr(order, 'authorizations', []):
             chall = None
             for c in authz.body.challenges:
                 if c.chall.typ == "dns-01":
@@ -214,14 +182,36 @@ class AcmeClient:
         try:
             finalized = acme.poll_and_finalize(order)
         except acme_errors.ValidationError as e:
-            print(f"ACME validation error: {e}")
-            return None, None, None
+            failed_domains = []
+            reasons = []
+            for authz in getattr(e, 'failed_authzrs', []):
+                domain = getattr(authz.body.identifier, 'value', None)
+                for chall in authz.body.challenges:
+                    if chall.chall.typ == "dns-01":
+                        status = getattr(chall, 'status', None)
+                        error = getattr(chall, 'error', None)
+                        if status == 'invalid' or error:
+                            reason = str(error) if error else 'Unknown error'
+                            failed_domains.append(domain)
+                            reasons.append(reason)
+            if not failed_domains:
+                failed_domains = [d for d in domains]
+                reasons = [str(e)] * len(failed_domains)
+            # Encode error as bytes for cert_pem, others empty
+            error_lines = [f"domain {dom} failed validation: {reason}" for dom, reason in zip(failed_domains, reasons)]
+            error_blob = ("; ".join(error_lines)).encode()
+            return b'ACME_VALIDATION_ERROR:' + error_blob, b'', b''
         except Exception as e:
             log.error("Certificate validation failed: %s", e)
-            print(f"ACME error: {e}")
-            return None, None, None
+            return b'ACME error: ' + str(e).encode(), b'', b''
 
-        cert_pem = finalized.fullchain_pem.encode() if hasattr(finalized, 'fullchain_pem') else finalized.fullchain.encode()
+        if hasattr(finalized, 'fullchain_pem'):
+            cert_pem = finalized.fullchain_pem.encode() if isinstance(finalized.fullchain_pem, str) else finalized.fullchain_pem
+        elif hasattr(finalized, 'fullchain'):
+            val = getattr(finalized, 'fullchain')
+            cert_pem = val.encode() if isinstance(val, str) else val
+        else:
+            cert_pem = b''
         chain_pem = b""  # chain included in fullchain
 
         # Export private key used for CSR so callers can deploy it

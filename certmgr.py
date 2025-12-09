@@ -371,7 +371,14 @@ def main():
                 summary['errors'].append(err_msg)
                 continue
             # cert_pem is fullchain; save key and cert
-            if cert_pem is None:
+            if cert_pem is not None and cert_pem.startswith(b'ACME_VALIDATION_ERROR:'):
+                error_blob = cert_pem[len(b'ACME_VALIDATION_ERROR:'):].decode(errors='replace')
+                for err_line in error_blob.split('; '):
+                    err_msg = f"Certificate {name}: {err_line}"
+                    print(err_msg)
+                    summary['errors'].append(err_msg)
+                continue
+            if cert_pem is None or cert_pem.startswith(b'ACME error:'):
                 warn_msg = f"Certificate request failed for {name}; no certificate issued."
                 log.warning(warn_msg)
                 summary['errors'].append(warn_msg)
