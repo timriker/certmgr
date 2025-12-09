@@ -1,0 +1,144 @@
+# zones and the target F5 devices for deployment.
+
+certificates:
+  - name: lehiutahtemple.org
+    domains:
+      - '*.lehiutahtemple.org'
+      - '*.alabangphilippinestemple.org'
+      - '*.bakersfieldcaliforniatemple.org'
+      - '*.burleyidahotemple.org'
+      - '*.charlottenorthcarolinatemple.org'
+      - '*.clevelandohiotemple.org'
+      - '*.coeurdaleneidahotemple.org'
+      - '*.coloradospringscoloradotemple.org'
+      - '*.davaophilippinestemple.org'
+      - '*.elkonevadatemple.org'
+      - '*.fairbanksalaskatemple.org'
+      - '*.fairviewtexastemple.org'
+      - '*.farmingtontemplenm.org'
+      - '*.flagstaffarizonatemple.org'
+      - '*.grandjunctioncoloradotemple.org'
+      - '*.hararezimbabwetemple.org'
+      - '*.houstontexassouthtemple.org'
+      - '*.jacksonvillefloridatemple.org'
+      - '*.kahuluihawaiitemple.org'
+      - '*.lethbridgealbertatemple.org'
+      - '*.lindonuttemple.org'
+      - '*.manhattannewyorktemple.org'
+      - '*.mckinneytexastemple.org'
+      - '*.missoulamontanatemple.org'
+      - '*.osakajapantemple.jp'
+      - '*.oslonorgetempel.org'
+      - '*.sanjosecaliforniatemple.org'
+      - '*.springfieldmissouritemple.org'
+      - '*.sydneyaustraliatemple.org'
+      - '*.syracuseutahtemple.org'
+      - '*.tacomawashingtontemple.org'
+      - '*.templodeantofagastachile.org'
+      - '*.templodebahiablancaargentina.org'
+      - '*.tulsaoklahomatemple.org'
+      - '*.vancouverwashingtontemple.org'
+      - '*.westjordanutahtemple.org'
+      - '*.wienoesterreichtempel.org'
+      - '*.yorbalindacaliforniatemple.org'
+      - '*.yumaarizonatemple.org'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+      - lb-ape-a.churchofjesuschrist.org
+      - lb-rpe-a.churchofjesuschrist.org
+      - lb-ppe-a.churchofjesuschrist.org
+
+  - name: ltw.how
+    domains:
+      - '*.ltw.how'
+      - '*.dawluddinja.org'
+      - '*.derwelteinlicht.org'
+      - '*.distributoreperdonare.org'
+      - '*.doeluz.org'
+      - '*.eclairerlemonde.org'
+      - '*.educacionsas.org'
+      - '*.ensignpeak.com'
+      - '*.ensignpeak.org'
+      - '*.familysearchsupport.org'
+      - '*.followjesuschrist.org'
+      - '*.gedcom.info'
+      - '*.iglesiajesucristosud.org'
+      - '*.iluminaelmundo.org'
+      - '*.ilumineomundo.org'
+      - '*.izgaismopasauli.org'
+      - '*.latterdaysaintjobs.org'
+      - '*.lighttheworld.jp'
+      - '*.lighttheworld.kr'
+      - '*.lighttheworld.mn'
+      - '*.lumineazalumea.org'
+      - '*.luzdelasnaciones.org'
+      - '*.lysforverden.org'
+      - '*.maquinadedonaciones.org'
+      - '*.maquinadedonacion.org'
+      - '*.musicinspires.com'
+      - '*.oplysverden.org'
+      - '*.osvetetesveta.org'
+      - '*.priditekohristu.org'
+      - '*.providentliving.org'
+      - '*.sejaaluzdomundo.org'
+      - '*.sigueajesucristo.org'
+      - '*.sirveahora.org'
+      - '*.suivrejesuschrist.org'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+      - lb-ape-a.churchofjesuschrist.org
+      - lb-rpe-a.churchofjesuschrist.org
+      - lb-ppe-a.churchofjesuschrist.org
+
+  - name: tabchoir.com
+    domains:
+      - '*.nauvoohistoricsites.com'
+      - '*.nauvoohistoricsites.net'
+      - '*.nauvoohistoricsites.org'
+      - '*.tabchoir.com'
+      - '*.tabchoir.net'
+      - '*.tabchoir.org'
+      - '*.templesquare.org'
+      - '*.thechristchild.jp'
+      - '*.thechristchild.kr'
+      - '*.thechristchild.mn'
+      - '*.thechristchild.org'
+      - '*.utahysaconference.org'
+      - '*.valgustamaailma.org'
+      - '*.valoamaailmaan.org'
+      - '*.visitnauvoo.org'
+      - '*.welcometochurch.org'
+      - '*.xn--80aabecihabdyf2b3abt4biiejb.org'
+      - '*.xn--apvieskpasaul-n9b25e.org'
+      - '*.xn--b1aailg0aveff3b7nh.org'
+      - '*.xn--clairezlemonde-9jb.org'
+      - '*.xn--ettljusfrvrlden-9kb71a.org'
+      - '*.xn--ljsfyrirheiminn-wrb.org'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+      - lb-ape-a.churchofjesuschrist.org
+      - lb-rpe-a.churchofjesuschrist.org
+      - lb-ppe-a.churchofjesuschrist.org
+
+  - name: dicm.org
+    domains:
+      - '*.dicm.org'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+
+  - name: churchofjesuschrist.org
+    domains:
+      - '*.churchofjesuschrist.org'
+      - '*.lds.org'
+      - '*.ldschurch.org'
+      - '*.ldscdn.org'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+      - lb-ape-a.churchofjesuschrist.org
+      - lb-rpe-a.churchofjesuschrist.org
+      - lb-ppe-a.churchofjesuschrist.org

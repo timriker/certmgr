@@ -1,0 +1,30 @@
+# Example configuration showing zones and the target F5 devices for deployment.
+
+certificates:
+  - name: ltw.how
+    domains:
+      - '*.ltw.how'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+
+  - name: dicm.org
+    domains:
+      - '*.dicm.org'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+
+  - name: churchofjesuschrist.org
+    domains:
+      - '*.churchofjesuschrist.org'
+      - '*.lds.org'
+      - '*.ldschurch.org'
+      - '*.ldscdn.org'
+    f5_targets:
+      - lb-psb-a.churchofjesuschrist.org
+      - lb-rsb-a.churchofjesuschrist.org
+      - lb-ape-a.churchofjesuschrist.org
+      - lb-rpe-a.churchofjesuschrist.org
+      - lb-ppe-a.churchofjesuschrist.org
+      - lb-ppi-a.churchofjesuschrist.org
