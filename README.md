@@ -66,6 +66,29 @@ Quick start
    the staging option when you're testing automation; only switch to
    production once you're confident the flow works.
 
+Command-line Options
+-------------------
+
+The following options are available when running `certmgr.py`:
+
+- `--config PATH`                Path to config file (default: config.yaml)
+- `--credentials PATH`           Path to credentials file (default: credentials.yaml)
+- `--account-key PATH`           Path to ACME account key (default: account.key)
+- `--days N`                     Renew if cert expires within N days (default: 30)
+- `--force`                      Force renewal regardless of expiration
+- `--staging`                    Use Let's Encrypt staging directory (safe for testing)
+- `--dry-run`                    Do not perform network calls; print planned actions
+- `--verbose`                    Enable verbose (debug) logging output
+- `--prepopulate`                Create/overwrite TXT records for all _acme-challenge.<domain> names listed in config without requesting a certificate
+- `--deploy`                     Deploy existing local certificates to F5 targets without requesting new certificates
+- `--list`                       List existing local certificates with their domains and expiration dates
+- `--certs NAMES`                Comma-delimited list of certificate names to process (e.g. dicm.org,example.com)
+- `--dns-wait-seconds N`         Seconds to wait for DNS propagation (default: 5)
+
+Example usage:
+
+    ./certmgr.py --force --verbose --certs=dicm.org,example.com --dns-wait-seconds=2
+
 Notes and caveats
 - The ACME interactions use the `acme` library; depending on installed
   versions you may need to adapt minor API differences.

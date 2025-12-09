@@ -1,10 +1,26 @@
 #!/usr/bin/env python3
 # Copyright (c) 2025 Tim Riker
 # SPDX-License-Identifier: MIT
-"""Command-line orchestration for obtaining and deploying certificates.
+"""
+Command-line orchestration for obtaining and deploying certificates.
 
 Usage:
     ./certmgr.py [options]
+
+Options:
+    --config PATH                Path to config file (default: config.yaml)
+    --credentials PATH           Path to credentials file (default: credentials.yaml)
+    --account-key PATH           Path to ACME account key (default: account.key)
+    --days N                     Renew if cert expires within N days (default: 30)
+    --force                      Force renewal regardless of expiration
+    --staging                    Use Let's Encrypt staging directory (safe for testing)
+    --dry-run                    Do not perform network calls; print planned actions
+    --verbose                    Enable verbose (debug) logging output
+    --prepopulate                Create/overwrite TXT records for all _acme-challenge.<domain> names listed in config without requesting a certificate
+    --deploy                     Deploy existing local certificates to F5 targets without requesting new certificates
+    --list                       List existing local certificates with their domains and expiration dates
+    --certs NAMES                Comma-delimited list of certificate names to process (e.g. dicm.org,example.com)
+    --dns-wait-seconds N         Seconds to wait for DNS propagation (default: 5)
 
 Default behavior (no options):
     - Shows list of all certificates with expiration status
@@ -13,13 +29,7 @@ Default behavior (no options):
     - Deploys renewed certificates to configured F5 targets
     - Shows summary of actions taken
 
-Options:
-    --list: Only show certificate list, do not renew
-    --deploy: Only deploy existing certificates, do not renew
-    --prepopulate: Only create DNS TXT records for testing
-    --staging: Use Let's Encrypt staging environment
-    --force: Force renewal regardless of expiration
-    --days N: Renew if expires within N days (default: 30)
+IMPORTANT: When adding or changing CLI options, update this comment block, the README, and the argparse help strings to keep documentation in sync.
 """
 import argparse
 import logging
@@ -120,7 +130,7 @@ def main():
     parser.add_argument('--force', action='store_true')
     parser.add_argument('--staging', action='store_true', help='Use Let\'s Encrypt staging directory (safe for testing)')
     parser.add_argument('--dry-run', action='store_true', help='Do not perform network calls; print planned actions')
-    parser.add_argument('--verbose', action='store_true')
+    parser.add_argument('--verbose', action='store_true', help='Enable verbose (debug) logging output')
     parser.add_argument('--prepopulate', action='store_true',
                         help='Create (or overwrite) TXT records for all _acme-challenge.<domain> names listed in config without requesting a certificate')
     parser.add_argument('--deploy', action='store_true',
