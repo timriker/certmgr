@@ -57,11 +57,13 @@ class AcmeClient:
                 serialization.NoEncryption()))
         return key
 
-    def create_csr(self, domains: Iterable[str], key=None) -> Tuple[bytes, rsa.RSAPrivateKey]:
+    def create_csr(self, domains: Iterable[str], key=None, cn: Optional[str] = None) -> Tuple[bytes, rsa.RSAPrivateKey]:
         # create key for CSR if not provided
         if key is None:
             key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, list(domains)[0])])
+        # Use provided CN or fallback to first domain
+        cn_value = cn if cn else list(domains)[0]
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn_value)])
         alt_names = [x509.DNSName(d) for d in domains]
         csr = x509.CertificateSigningRequestBuilder().subject_name(name).add_extension(
             x509.SubjectAlternativeName(alt_names), critical=False)
@@ -90,8 +92,21 @@ class AcmeClient:
         # Load or create account key
         self.load_or_create_account_key(account_key_path)
 
-        # Create CSR and key
-        csr_pem, privkey = self.create_csr(domains)
+        # Create CSR and key, set CN to cert name if available
+        # Try to get cert name from caller context (pass as kwarg if possible)
+        cert_name = None
+        import inspect
+        frame = inspect.currentframe()
+        try:
+            # Look up the stack for 'name' variable in caller
+            while frame:
+                if 'name' in frame.f_locals:
+                    cert_name = frame.f_locals['name']
+                    break
+                frame = frame.f_back
+        finally:
+            del frame
+        csr_pem, privkey = self.create_csr(domains, cn=cert_name)
 
         # The ACME protocol interactions are performed using the `acme` library.
         # Implementations vary across versions; the following is a high-level
