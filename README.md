@@ -45,6 +45,15 @@ example.net._tls.example.com.    IN TXT   "challenge-token-here"
 This allows certmgr to update the `_tls.example.com` zone (which has a 60-second
 TTL and fast replication) while your main zone maintains longer TTLs for stability.
 
+Key Type and Size
+-----------------
+
+By default, certmgr requests certificates using RSA keys with a size of 2048 bits. This applies to both the ACME account key and the certificate signing requests (CSRs) for all certificates issued.
+
+**If you require ECDSA certificates or a different key size, you will need to modify the code in `acme_client.py` to generate the desired key type and size.**
+
+All current cryptographic operations and type checks assume RSA 2048-bit keys.
+
 Quick start
 -----------
 
