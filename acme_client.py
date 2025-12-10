@@ -155,7 +155,29 @@ class AcmeClient:
         try:
             order = acme.new_order(csr_pem=csr_pem)
         except Exception as e:
-            return b'ACME error: ' + str(e).encode(), b'', b''
+            # Try to extract details from the ACME error response, especially for Authorization errors
+            err_msg = str(e)
+            detail = ''
+            response = getattr(e, 'response', None)
+            if response is not None:
+                try:
+                    detail = f"\nACME response: {getattr(response, 'text', '')}"
+                except Exception:
+                    pass
+            body = getattr(e, 'body', None)
+            if body:
+                detail += f"\nACME error body: {body}"
+            error_attr = getattr(e, 'error', None)
+            if error_attr:
+                detail += f"\nACME error: {error_attr}"
+            # If this is a known ACME error (urn:ietf:params:acme:error:rateLimited or similar), do not show traceback
+            if 'urn:ietf:params:acme:error:' in err_msg:
+                error_blob = f"ACME order creation failed: {err_msg}{detail}"
+            else:
+                import traceback
+                tb = traceback.format_exc()
+                error_blob = f"ACME order creation failed: {err_msg}{detail}\nTraceback:\n{tb}"
+            return b'ACME_VALIDATION_ERROR:' + error_blob.encode(errors='replace'), b'', b''
 
         # Handle authorizations and dns-01 challenges
         for authz in getattr(order, 'authorizations', []):
@@ -198,7 +220,7 @@ class AcmeClient:
             finalized = acme.poll_and_finalize(order)
         except acme_errors.ValidationError as e:
             failed_domains = []
-            reasons = []
+            error_details = []
             for authz in getattr(e, 'failed_authzrs', []):
                 domain = getattr(authz.body.identifier, 'value', None)
                 for chall in authz.body.challenges:
@@ -206,15 +228,25 @@ class AcmeClient:
                         status = getattr(chall, 'status', None)
                         error = getattr(chall, 'error', None)
                         if status == 'invalid' or error:
-                            reason = str(error) if error else 'Unknown error'
+                            # Try to extract more details from the error object
+                            reason = 'Unknown error'
+                            if error:
+                                # error is usually an acme.messages.Error object
+                                err_type = getattr(error, 'type', None)
+                                err_detail = getattr(error, 'detail', None)
+                                err_status = getattr(error, 'status', None)
+                                reason = f"type={err_type}, detail={err_detail}, status={err_status}"
                             failed_domains.append(domain)
-                            reasons.append(reason)
+                            # Suggest DNS TXT check for this domain
+                            fqdn = f"_acme-challenge.{domain}"
+                            error_details.append(
+                                f"domain {domain} failed validation: {reason}.\n  Suggest: Check DNS TXT for {fqdn} (should match the value published during challenge)."
+                            )
             if not failed_domains:
                 failed_domains = [d for d in domains]
-                reasons = [str(e)] * len(failed_domains)
+                error_details = [f"domain {d} failed validation: {str(e)}" for d in failed_domains]
             # Encode error as bytes for cert_pem, others empty
-            error_lines = [f"domain {dom} failed validation: {reason}" for dom, reason in zip(failed_domains, reasons)]
-            error_blob = ("; ".join(error_lines)).encode()
+            error_blob = ("; ".join(error_details)).encode()
             return b'ACME_VALIDATION_ERROR:' + error_blob, b'', b''
         except Exception as e:
             log.error("Certificate validation failed: %s", e)
