@@ -246,7 +246,7 @@ def update_txt_record(server: str,
                     if name.endswith('.' + zone):
                         relative_name = name[:-(len(zone) + 1)]
                     # Delete existing records
-                    u.delete(relative_name, 'TXT')
+                    #u.delete(relative_name, 'TXT')
                     # Only add new value if txt_value is non-empty (for removal, just delete)
                     if txt_value:
                         u.add(relative_name, ttl, 'TXT', txt_value)

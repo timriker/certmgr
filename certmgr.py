@@ -260,11 +260,16 @@ def main():
             # For each domain create its ACME challenge name and publish a placeholder TXT.
             # Wildcard domains (*.example.com) map to base domain for dns-01.
             log.info("Prepopulating TXT records for certificate %s", name)
-            placeholder = f"prepopulate-{int(datetime.now(timezone.utc).timestamp())}"
+            timestamp = int(datetime.now(timezone.utc).timestamp())
             for d in domains:
-                # Always use base domain for DNS-01 challenge
-                base = d[2:] if d.startswith('*.') else d
+                is_wildcard = d.startswith('*.')
+                base = d[2:] if is_wildcard else d
                 challenge_name = f"_acme-challenge.{base}"
+                # Make placeholder unique for wildcard vs bare
+                if is_wildcard:
+                    placeholder = f"prepopulate-wildcard-{timestamp}-{base}"
+                else:
+                    placeholder = f"prepopulate-bare-{timestamp}-{base}"
                 try:
                     r = creds.get('rfc2136')
                     if not r:
