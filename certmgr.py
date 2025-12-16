@@ -113,11 +113,22 @@ def expand_domains(domains: list) -> list:
     example.com as well (unless already present).
     """
     expanded = list(domains)  # Copy the original list
-    for domain in domains:
-        if domain.startswith('*.'):
-            bare_domain = domain[2:]  # Remove the '*.'
-            if bare_domain not in expanded:
-                expanded.append(bare_domain)
+    wildcards = [d for d in domains if d.startswith('*.')]
+    bare_domains_to_add = set()
+    for wc in wildcards:
+        bare = wc[2:]
+        # Only add the bare domain if it is not covered by another broader wildcard
+        covered = False
+        for other_wc in wildcards:
+            if other_wc == wc:
+                continue
+            # If this wildcard is a subdomain of another wildcard, skip adding its bare domain
+            if bare.endswith('.' + other_wc[2:]):
+                covered = True
+                break
+        if not covered and bare not in expanded:
+            bare_domains_to_add.add(bare)
+    expanded.extend(sorted(bare_domains_to_add))
     return expanded
 
 
