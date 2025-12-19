@@ -221,8 +221,6 @@ class F5Deployer:
             tx_commit = requests.patch(tx_commit_url, headers=commit_headers, json={"state": "VALIDATING"}, verify=self.verify)
             tx_commit.raise_for_status()
 
-
-
             # Create or update SSL client profile
             profile_name = f"le_{base_name}"
             self.create_or_update_clientssl_profile(host, profile_name, cert_name, key_name, headers=headers)
@@ -233,35 +231,3 @@ class F5Deployer:
                     self.delete_token(host, token)
                 except Exception:
                     log.debug("Failed to delete token on %s", host, exc_info=True)
-
-    def get_remote_cert_expiry(self, host: str, cert_name: str) -> Optional[int]:
-        """Return the number of days until the cert named cert_name expires on the F5, if available.
-
-        Returns None if unable to determine.
-        """
-        try:
-            url = f"https://{host}/mgmt/tm/sys/crypto/cert/{cert_name}"
-            # Prefer token-based auth for reading cert info
-            token = None
-            try:
-                token = self.create_token(host)
-                headers = {"X-F5-Auth-Token": token}
-                r = requests.get(url, headers=headers, verify=self.verify)
-            finally:
-                if token:
-                    try:
-                        self.delete_token(host, token)
-                    except Exception:
-                        log.debug("Failed to delete token after reading cert on %s", host, exc_info=True)
-            r.raise_for_status()
-            obj = r.json()
-            cert_text = obj.get('certificate')
-            if not cert_text:
-                return None
-            cert = x509.load_pem_x509_certificate(cert_text.encode())
-            from datetime import datetime, timezone
-            delta = cert.not_valid_after - datetime.now(timezone.utc)
-            return delta.days
-        except Exception as e:
-            log.debug("Could not read remote cert expiry for %s/%s: %s", host, cert_name, e)
-            return None
