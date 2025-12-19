@@ -176,11 +176,12 @@ class F5Deployer:
           - certificate: le_<base_name>.crt
           - key:         le_<base_name>.key
 
-        This function first attempts to create the key and cert; on conflict it
-        will attempt to update the existing objects via PUT.
+        This function uploads key and cert files, then updates both objects in a single transaction.
         """
         key_name = f"le_{base_name}.key"
         cert_name = f"le_{base_name}.crt"
+        key_filename = key_name
+        cert_filename = cert_name
 
         token = None
         headers = None
@@ -189,21 +190,38 @@ class F5Deployer:
             token = self.create_token(host)
             headers = {"X-F5-Auth-Token": token, "Content-Type": "application/json"}
 
-            try:
-                self.upload_key(host, key_pem, key_name, headers=headers)
-            except requests.HTTPError as e:
-                log.debug("Key upload failed, attempting update with token: %s", e)
-                url = f"https://{host}/mgmt/tm/sys/crypto/key/{key_name}"
-                r = requests.put(url, headers=headers, json={"key": key_pem.decode()}, verify=self.verify)
-                r.raise_for_status()
+            # Upload key and cert files
+            self.upload_file(host, key_pem, key_filename, headers)
+            self.upload_file(host, cert_pem, cert_filename, headers)
 
-            try:
-                self.upload_cert(host, cert_pem, cert_name, headers=headers)
-            except requests.HTTPError as e:
-                log.debug("Cert upload failed, attempting update with token: %s", e)
-                url = f"https://{host}/mgmt/tm/sys/crypto/cert/{cert_name}"
-                r = requests.put(url, headers=headers, json={"certificate": cert_pem.decode()}, verify=self.verify)
-                r.raise_for_status()
+            # Start transaction (POST with empty payload)
+            tx_url = f"https://{host}/mgmt/tm/transaction"
+            tx_resp = requests.post(tx_url, headers=headers, json={}, verify=self.verify)
+            tx_resp.raise_for_status()
+            tx_id = tx_resp.json().get('transId')
+            if not tx_id:
+                raise RuntimeError(f"Failed to start transaction on {host}")
+            tx_headers = headers.copy()
+            tx_headers['X-F5-REST-Coordination-Id'] = str(tx_id)
+
+            # Update key and cert sourcePath in transaction (use PUT)
+            key_obj_url = f"https://{host}/mgmt/tm/sys/file/ssl-key/{key_name}"
+            cert_obj_url = f"https://{host}/mgmt/tm/sys/file/ssl-cert/{cert_name}"
+            key_data = {"sourcePath": f"file:/var/config/rest/downloads/{key_filename}"}
+            cert_data = {"sourcePath": f"file:/var/config/rest/downloads/{cert_filename}"}
+            key_put = requests.put(key_obj_url, headers=tx_headers, json=key_data, verify=self.verify)
+            key_put.raise_for_status()
+            cert_put = requests.put(cert_obj_url, headers=tx_headers, json=cert_data, verify=self.verify)
+            cert_put.raise_for_status()
+
+            # Remove coordination header before commit
+            commit_headers = headers.copy()
+            # Commit transaction
+            tx_commit_url = f"https://{host}/mgmt/tm/transaction/{tx_id}"
+            tx_commit = requests.patch(tx_commit_url, headers=commit_headers, json={"state": "VALIDATING"}, verify=self.verify)
+            tx_commit.raise_for_status()
+
+
 
             # Create or update SSL client profile
             profile_name = f"le_{base_name}"
