@@ -190,9 +190,33 @@ class F5Deployer:
             token = self.create_token(host)
             headers = {"X-F5-Auth-Token": token, "Content-Type": "application/json"}
 
-            # Upload key and cert files
-            self.upload_file(host, key_pem, key_filename, headers)
-            self.upload_file(host, cert_pem, cert_filename, headers)
+            # Check if key and cert exist
+            key_obj_url = f"https://{host}/mgmt/tm/sys/file/ssl-key/{key_name}"
+            cert_obj_url = f"https://{host}/mgmt/tm/sys/file/ssl-cert/{cert_name}"
+            key_exists = False
+            cert_exists = False
+            try:
+                key_get = requests.get(key_obj_url, headers=headers, verify=self.verify)
+                key_exists = key_get.status_code == 200
+            except Exception:
+                key_exists = False
+            try:
+                cert_get = requests.get(cert_obj_url, headers=headers, verify=self.verify)
+                cert_exists = cert_get.status_code == 200
+            except Exception:
+                cert_exists = False
+
+            # If missing, use upload_key/upload_cert to create them
+            if not key_exists:
+                log.info(f"Key {key_name} does not exist, creating...")
+                self.upload_key(host, key_pem, key_name, headers)
+            else:
+                self.upload_file(host, key_pem, key_filename, headers)
+            if not cert_exists:
+                log.info(f"Cert {cert_name} does not exist, creating...")
+                self.upload_cert(host, cert_pem, cert_name, headers)
+            else:
+                self.upload_file(host, cert_pem, cert_filename, headers)
 
             # Start transaction (POST with empty payload)
             tx_url = f"https://{host}/mgmt/tm/transaction"
@@ -205,8 +229,6 @@ class F5Deployer:
             tx_headers['X-F5-REST-Coordination-Id'] = str(tx_id)
 
             # Update key and cert sourcePath in transaction (use PUT)
-            key_obj_url = f"https://{host}/mgmt/tm/sys/file/ssl-key/{key_name}"
-            cert_obj_url = f"https://{host}/mgmt/tm/sys/file/ssl-cert/{cert_name}"
             key_data = {"sourcePath": f"file:/var/config/rest/downloads/{key_filename}"}
             cert_data = {"sourcePath": f"file:/var/config/rest/downloads/{cert_filename}"}
             key_put = requests.put(key_obj_url, headers=tx_headers, json=key_data, verify=self.verify)
