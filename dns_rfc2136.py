@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2025 Tim Riker
+# Copyright (c) 2025-2026 Tim Riker
 # SPDX-License-Identifier: MIT
 """RFC2136 DNS updater helpers with CNAME-following for ACME DNS-01.
 
