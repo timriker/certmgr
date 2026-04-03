@@ -107,3 +107,5 @@ Notes and caveats
   full Administrator role.
 
 - Use `--staging` for testing to avoid Let's Encrypt production rate limits.
+
+https://community.f5.com/discussions/technicalforum/acme-dns-rfc-2136-lets-encrypt-certs/344541
