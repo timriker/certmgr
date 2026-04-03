@@ -2,13 +2,13 @@ certificates:
   - name: example.com
     domains:
       - '*.example.com'
-    f5_targets:
+    f5_ltm:
       - lb-datacenter1-a.example.com
       - lb-datacenter2-a.example.com
 
   - name: example.net
     domains:
       - '*.example.net'
-    f5_targets:
+    f5_ltm:
       - lb-datacenter1-a.example.net
       - lb-datacenter2-a.example.net

@@ -3,3 +3,7 @@ certs
 config.yaml*
 credentials.yaml*
 __pycache__
+.aider*
+.codex
+.continue*
+.vscode*

@@ -38,6 +38,7 @@ from acme.messages import Error
 import yaml
 from datetime import datetime, timezone
 from cryptography import x509
+import certifi
 import sys
 
 # Make the script runnable from any current working directory by ensuring the
@@ -50,13 +51,13 @@ if SCRIPT_DIR not in sys.path:
 try:
     from .acme_client import AcmeClient
     from .dns_rfc2136 import resolve_cname_target, update_txt_record, discover_zone_for_name
-    from .f5_deploy import F5Deployer
+    from .f5_ltm import F5LTM
 except Exception:
     # Allow running this file directly (not via -m) for quick testing by
     # falling back to module-level imports.
     from acme_client import AcmeClient
     from dns_rfc2136 import resolve_cname_target, update_txt_record, discover_zone_for_name
-    from f5_deploy import F5Deployer
+    from f5_ltm import F5LTM
 
 log = logging.getLogger(__name__)
 
@@ -130,6 +131,55 @@ def expand_domains(domains: list) -> list:
             bare_domains_to_add.add(bare)
     expanded.extend(sorted(bare_domains_to_add))
     return expanded
+
+
+def split_pem_certificates(pem_data: bytes) -> list[bytes]:
+    blocks = []
+    current = []
+    inside = False
+    for line in pem_data.splitlines(keepends=True):
+        if b'-----BEGIN CERTIFICATE-----' in line:
+            current = [line]
+            inside = True
+        elif inside:
+            current.append(line)
+            if b'-----END CERTIFICATE-----' in line:
+                blocks.append(b''.join(current))
+                current = []
+                inside = False
+    return blocks
+
+
+def load_trust_store_certificates() -> list[tuple[x509.Certificate, bytes]]:
+    with open(certifi.where(), 'rb') as f:
+        pem_data = f.read()
+    certs = []
+    for pem_block in split_pem_certificates(pem_data):
+        certs.append((x509.load_pem_x509_certificate(pem_block), pem_block))
+    return certs
+
+
+def build_with_root_pem(cert_pem: bytes) -> bytes | None:
+    cert_blocks = split_pem_certificates(cert_pem)
+    if not cert_blocks:
+        return None
+
+    chain = [x509.load_pem_x509_certificate(block) for block in cert_blocks]
+    last_cert = chain[-1]
+
+    for trust_cert, trust_pem in load_trust_store_certificates():
+        if trust_cert.subject != last_cert.issuer:
+            continue
+        if trust_cert.subject != trust_cert.issuer:
+            continue
+        return cert_pem + trust_pem
+
+    return None
+
+
+def get_f5_ltm_targets(cert: dict, config: dict) -> list:
+    """Return the traffic-certificate deployment targets for a certificate."""
+    return cert.get('f5_ltm') or config.get('f5_ltm') or []
 
 
 def main():
@@ -242,11 +292,11 @@ def main():
             with open(key_path, 'rb') as f:
                 key_pem = f.read()
 
-            f5_targets = cert.get('f5_targets') or config.get('f5_targets') or []
+            f5_ltm = get_f5_ltm_targets(cert, config)
             f5_creds = creds.get('f5', {})
-            deployer = F5Deployer(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
+            deployer = F5LTM(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
 
-            for host in f5_targets:
+            for host in f5_ltm:
                 try:
                     deployer.deploy(host, cert_pem, key_pem, name)
                     log.info("Deployed %s to %s", name, host)
@@ -325,8 +375,8 @@ def main():
             if args.dry_run:
                 # Dry-run: print the planned actions and skip network interactions.
                 log.info("DRY RUN: would request ACME certificate for %s with domains %s", name, domains)
-                f5_targets = cert.get('f5_targets') or config.get('f5_targets') or []
-                for host in f5_targets:
+                f5_ltm = get_f5_ltm_targets(cert, config)
+                for host in f5_ltm:
                     log.info("DRY RUN: would deploy %s.crt and %s.key to %s", name, name, host)
                 # continue to next certificate without making network calls
                 continue
@@ -401,6 +451,14 @@ def main():
                 continue
             with open(cert_path, 'wb') as f:
                 f.write(cert_pem)
+            with_root_pem = build_with_root_pem(cert_pem)
+            with_root_path = os.path.join('certs', f"{name}.with-root.pem")
+            if with_root_pem:
+                with open(with_root_path, 'wb') as f:
+                    f.write(with_root_pem)
+                log.info("Saved certificate with root to %s", with_root_path)
+            else:
+                log.warning("Could not find a matching root certificate for %s; %s was not written", name, with_root_path)
             # save private key if returned
             if key_pem:
                 with open(key_path, 'wb') as kf:
@@ -416,14 +474,14 @@ def main():
 
             # Deploy to F5 targets
             # Determine f5 targets: per-cert override, per-zone or global
-            f5_targets = cert.get('f5_targets') or config.get('f5_targets') or []
+            f5_ltm = get_f5_ltm_targets(cert, config)
             f5_creds = creds.get('f5', {})
-            deployer = F5Deployer(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
+            deployer = F5LTM(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
             # We currently do not have the private key saved separately; if the
             # ACME client returns it we should save and deploy it. This example
             # expects the CSR-generation key to be made available; for now we
             # store cert only and attempt to deploy cert (some F5s accept cert-only)
-            for host in f5_targets:
+            for host in f5_ltm:
                 try:
                     # pass empty key for now if not present
                     key_pem = b""

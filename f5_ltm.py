@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 urllib3.disable_warnings(InsecureRequestWarning)
 
 
-class F5Deployer:
+class F5LTM:
     def __init__(self, username: str, password: str, verify_ssl: bool = False):
         self.username = username
         self.password = password
