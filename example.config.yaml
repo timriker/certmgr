@@ -5,6 +5,8 @@ certificates:
     f5_ltm:
       - lb-datacenter1-a.example.com
       - lb-datacenter2-a.example.com
+    f5_httpd:
+      - lb-datacenter1.example.com
 
   - name: example.net
     domains:
@@ -12,3 +14,5 @@ certificates:
     f5_ltm:
       - lb-datacenter1-a.example.net
       - lb-datacenter2-a.example.net
+    f5_httpd:
+      - lb-datacenter1.example.net

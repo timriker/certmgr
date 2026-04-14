@@ -52,12 +52,14 @@ try:
     from .acme_client import AcmeClient
     from .dns_rfc2136 import resolve_cname_target, update_txt_record, discover_zone_for_name
     from .f5_ltm import F5LTM
+    from .f5_httpd import F5HTTPD
 except Exception:
     # Allow running this file directly (not via -m) for quick testing by
     # falling back to module-level imports.
     from acme_client import AcmeClient
     from dns_rfc2136 import resolve_cname_target, update_txt_record, discover_zone_for_name
     from f5_ltm import F5LTM
+    from f5_httpd import F5HTTPD
 
 log = logging.getLogger(__name__)
 
@@ -150,6 +152,13 @@ def split_pem_certificates(pem_data: bytes) -> list[bytes]:
     return blocks
 
 
+def normalize_pem_bundle(pem_data: bytes) -> bytes:
+    blocks = [block.strip() for block in split_pem_certificates(pem_data)]
+    if not blocks:
+        return pem_data
+    return b"\n\n".join(blocks) + b"\n"
+
+
 def load_trust_store_certificates() -> list[tuple[x509.Certificate, bytes]]:
     with open(certifi.where(), 'rb') as f:
         pem_data = f.read()
@@ -172,7 +181,7 @@ def build_with_root_pem(cert_pem: bytes) -> bytes | None:
             continue
         if trust_cert.subject != trust_cert.issuer:
             continue
-        return cert_pem + trust_pem
+        return normalize_pem_bundle(cert_pem + b"\n" + trust_pem)
 
     return None
 
@@ -180,6 +189,11 @@ def build_with_root_pem(cert_pem: bytes) -> bytes | None:
 def get_f5_ltm_targets(cert: dict, config: dict) -> list:
     """Return the traffic-certificate deployment targets for a certificate."""
     return cert.get('f5_ltm') or config.get('f5_ltm') or []
+
+
+def get_f5_httpd_targets(cert: dict, config: dict) -> list:
+    """Return the management HTTPD deployment targets for a certificate."""
+    return cert.get('f5_httpd') or config.get('f5_httpd') or []
 
 
 def main():
@@ -449,6 +463,7 @@ def main():
                 log.warning(warn_msg)
                 summary['errors'].append(warn_msg)
                 continue
+            cert_pem = normalize_pem_bundle(cert_pem)
             with open(cert_path, 'wb') as f:
                 f.write(cert_pem)
             with_root_pem = build_with_root_pem(cert_pem)
