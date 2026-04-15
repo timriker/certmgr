@@ -1,11 +1,14 @@
 certificates:
   - name: example.com
+    acme_profile: tlsclient
     domains:
       - '*.example.com'
     f5_ltm:
       - lb-datacenter1-a.example.com
       - lb-datacenter2-a.example.com
     f5_httpd:
+      # Shared-IP or cluster names. certmgr resolves these into the trusted
+      # member devices and deploys to each node's management interface.
       - lb-datacenter1.example.com
 
   - name: example.net

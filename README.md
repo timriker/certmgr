@@ -9,7 +9,7 @@ Key points
   is a CNAME to some other zone, the TXT will be published where the CNAME
   points.
 - RFC2136 credentials (TSIG) and F5 credentials live in `credentials.yaml`.
-- certificates, domains and F5 targets live in `config.yaml`.
+- certificates, domains and F5 deployment targets live in `config.yaml`.
 - The CLI will renew certificates that are missing or expire within the
   configured threshold (default 30 days).
 
@@ -60,7 +60,7 @@ Quick start
 1. Create `credentials.yaml` (copy from `example.credentials.yaml`) and fill in
    real credentials.
 2. Edit `config.yaml` (copy from `example.config.yaml`) to list your certificates,
-   domains and F5 targets.
+   domains and F5 deployment targets.
 3. Install dependencies: pip install -r requirements.txt
 4. Run:
 
@@ -97,6 +97,81 @@ The following options are available when running `certmgr.py`:
 Example usage:
 
     ./certmgr.py --force --verbose --certs=dicm.org,example.com --dns-wait-seconds=2
+
+F5 Configuration
+----------------
+
+Each certificate can define separate F5 deployment targets:
+
+- `acme_profile`
+  Optional Let's Encrypt ACME profile, such as `tlsclient`, when you need a
+  certificate profile other than the directory default.
+
+- `f5_ltm`
+  Traffic-certificate targets. These are the shared-IP or active-node names
+  used for the existing LTM/client SSL deployment flow.
+
+- `f5_httpd`
+  Management-plane HTTPD targets. These should be cluster/shared-IP hostnames
+  such as `lb-psb.churchofjesuschrist.org`. certmgr resolves them into the
+  trusted member devices in the BIG-IP device trust store and deploys to each
+  node's management interface.
+
+Example:
+
+```yaml
+certificates:
+  - name: churchofjesuschrist.org
+    acme_profile: tlsclient
+    domains:
+      - '*.churchofjesuschrist.org'
+      - '*.lds.org'
+      - '*.ldschurch.org'
+    f5_ltm:
+      - lb-psb.churchofjesuschrist.org
+      - lb-rsb.churchofjesuschrist.org
+    f5_httpd:
+      - lb-psb.churchofjesuschrist.org
+      - lb-rsb.churchofjesuschrist.org
+```
+
+Certificate Files
+-----------------
+
+certmgr writes these local artifacts for each certificate:
+
+- `certs/<name>.key`
+  The private key.
+
+- `certs/<name>.pem`
+  The normal ACME chain: leaf certificate plus intermediate certificate(s).
+  This is the file used for `f5_ltm` deployment.
+
+- `certs/<name>.with-root.pem`
+  The management-plane chain: leaf certificate plus intermediate certificate(s)
+  plus the root certificate. This is the file used for `f5_httpd` deployment.
+
+If `acme_profile` is set, certmgr includes that profile name in the ACME
+new-order request. This is useful for Let's Encrypt's temporary `tlsclient`
+profile when you need TLS Client Auth EKU in addition to TLS Server Auth.
+
+Both PEM bundle files are written with a blank line between certificate blocks
+to accommodate BIG-IP consumers that are sensitive to PEM formatting.
+
+HTTPD Deployment Behavior
+-------------------------
+
+When a certificate entry has `f5_httpd` targets, `./certmgr.py --deploy` will:
+
+- Resolve the cluster names into trusted member devices using BIG-IP device trust
+- Prefer node hostnames for REST and HTTPS verification when they resolve
+- Push the management certificate bundle from `certs/<name>.with-root.pem`
+- Push the private key from `certs/<name>.key`
+- Copy the deployed HTTPD certificate bundle to:
+  - `/config/gtm/server.crt`
+  - `/config/big3d/client.crt`
+- Restart `httpd`
+- Verify the certificate presented on the management HTTPS endpoint
 
 Notes and caveats
 - The ACME interactions use the `acme` library; depending on installed

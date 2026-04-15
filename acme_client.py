@@ -74,7 +74,8 @@ class AcmeClient:
                            domains: Iterable[str],
                            publish_challenge: Callable[[str, str], None],
                            remove_challenge: Callable[[str], None],
-                           account_key_path: str = "account.key") -> Tuple[bytes, bytes, bytes]:
+                           account_key_path: str = "account.key",
+                           profile: Optional[str] = None) -> Tuple[bytes, bytes, bytes]:
         """High-level flow:
 
         - ensure account key exists
@@ -112,8 +113,10 @@ class AcmeClient:
         # Implementations vary across versions; the following is a high-level
         # sequence. Consumers may need to adapt details if API surface differs.
         try:
-            from acme import client as acme_client, messages, errors as acme_errors
+            from acme import client as acme_client, messages, errors as acme_errors, crypto_util
             from josepy.jwk import JWKRSA
+            import josepy as jose
+            import OpenSSL.crypto
         except Exception as e:
             log.error("ACME library not available: %s", e)
             raise
@@ -126,7 +129,8 @@ class AcmeClient:
         # header" errors from ACME servers.
         jwk = JWKRSA(key=self.account_key)
         net = acme_client.ClientNetwork(jwk)
-        directory = messages.Directory.from_json(net.get(self.directory_url).json())
+        directory_json = net.get(self.directory_url).json()
+        directory = messages.Directory.from_json(directory_json)
         acme = acme_client.ClientV2(directory, net)
         try:
             acc = acme.new_account(messages.NewRegistration.from_data(email=None, terms_of_service_agreed=True))
@@ -153,7 +157,46 @@ class AcmeClient:
 
         # Create order
         try:
-            order = acme.new_order(csr_pem=csr_pem)
+            if profile:
+                advertised_profiles = ((directory_json.get('meta') or {}).get('profiles') or {})
+                if advertised_profiles and profile not in advertised_profiles:
+                    choices = ", ".join(sorted(advertised_profiles))
+                    raise RuntimeError(
+                        f"Requested ACME profile '{profile}' is not advertised by the directory. "
+                        f"Available profiles: {choices}"
+                    )
+
+                class ProfiledNewOrder(messages.NewOrder):
+                    profile: str = jose.field('profile', omitempty=True)
+
+                csr = OpenSSL.crypto.load_certificate_request(OpenSSL.crypto.FILETYPE_PEM, csr_pem)
+                identifiers = []
+                for dns_name in crypto_util._pyopenssl_cert_or_req_all_names(csr):
+                    identifiers.append(messages.Identifier(
+                        typ=messages.IDENTIFIER_FQDN,
+                        value=dns_name,
+                    ))
+                for ip_name in crypto_util._pyopenssl_cert_or_req_san_ip(csr):
+                    identifiers.append(messages.Identifier(
+                        typ=messages.IDENTIFIER_IP,
+                        value=ip_name,
+                    ))
+
+                log.info("Requesting ACME order with profile %s", profile)
+                order_request = ProfiledNewOrder(identifiers=identifiers, profile=profile)
+                response = acme._post(acme.directory['newOrder'], order_request)
+                body = messages.Order.from_json(response.json())
+                authorizations = []
+                for url in body.authorizations:
+                    authorizations.append(acme._authzr_from_response(acme._post_as_get(url), uri=url))
+                order = messages.OrderResource(
+                    body=body,
+                    uri=response.headers.get('Location'),
+                    authorizations=authorizations,
+                    csr_pem=csr_pem,
+                )
+            else:
+                order = acme.new_order(csr_pem=csr_pem)
         except Exception as e:
             # Try to extract details from the ACME error response, especially for Authorization errors
             err_msg = str(e)

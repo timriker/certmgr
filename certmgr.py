@@ -26,7 +26,7 @@ Default behavior (no options):
     - Shows list of all certificates with expiration status
     - Automatically renews certificates that expire within 30 days (or --days threshold)
     - Renews certificates that have domain changes in config
-    - Deploys renewed certificates to configured F5 targets
+    - Deploys renewed certificates to configured `f5_ltm` and `f5_httpd` targets
     - Shows summary of actions taken
 
 IMPORTANT: When adding or changing CLI options, update this comment block, the README, and the argparse help strings to keep documentation in sync.
@@ -69,18 +69,6 @@ def load_yaml(path):
         return yaml.safe_load(f)
 
 
-def find_zone_for_fqdn(fqdn: str, zones: list):
-    # choose longest matching zone name that is a suffix of fqdn
-    fqdn = fqdn.rstrip('.')
-    cand = None
-    for z in zones:
-        name = z.get('name')
-        if fqdn == name or fqdn.endswith('.' + name):
-            if cand is None or len(name) > len(cand.get('name')):
-                cand = z
-    return cand
-
-
 def ensure_dir(path):
     if not os.path.exists(path):
         os.makedirs(path)
@@ -98,15 +86,6 @@ def days_until_expiry(pem_data: bytes) -> int:
     except ValueError:
         # PEM is invalid or missing
         return -9999
-        try:
-            cert = x509.load_pem_x509_certificate(pem_data)
-            not_after = cert.not_valid_after
-            now = datetime.now(timezone.utc)
-            delta = not_after - now
-            return delta.days
-        except ValueError:
-            # PEM is invalid or missing
-            return -9999
 
 
 def expand_domains(domains: list) -> list:
@@ -196,6 +175,11 @@ def get_f5_httpd_targets(cert: dict, config: dict) -> list:
     return cert.get('f5_httpd') or config.get('f5_httpd') or []
 
 
+def get_acme_profile(cert: dict, config: dict) -> str | None:
+    """Return the ACME profile to request for a certificate, if configured."""
+    return cert.get('acme_profile') or config.get('acme_profile')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default=os.path.join(SCRIPT_DIR, 'config.yaml'))
@@ -282,7 +266,8 @@ def main():
     summary = {
         'renewed': [],
         'reordered': [],
-        'deployed': [],
+        'ltm_deployed': [],
+        'httpd_deployed': [],
         'errors': []
     }
 
@@ -291,7 +276,9 @@ def main():
         name = cert['name']
         domains = expand_domains(cert['domains'])
         cert_path = os.path.join('certs', f"{name}.pem")
+        with_root_path = os.path.join('certs', f"{name}.with-root.pem")
         key_path = os.path.join('certs', f"{name}.key")
+        acme_profile = get_acme_profile(cert, config)
 
         if args.deploy:
             # Deploy existing certificates without requesting new ones
@@ -303,21 +290,47 @@ def main():
                 continue
             with open(cert_path, 'rb') as f:
                 cert_pem = f.read()
+            if not os.path.exists(with_root_path):
+                log.warning("Certificate with root for %s not found at %s, skipping HTTPD deployment", name, with_root_path)
+                with_root_pem = None
+            else:
+                with open(with_root_path, 'rb') as f:
+                    with_root_pem = f.read()
             with open(key_path, 'rb') as f:
                 key_pem = f.read()
 
             f5_ltm = get_f5_ltm_targets(cert, config)
+            f5_httpd = get_f5_httpd_targets(cert, config)
             f5_creds = creds.get('f5', {})
-            deployer = F5LTM(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
+            ltm_deployer = F5LTM(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
+            httpd_deployer = F5HTTPD(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
 
             for host in f5_ltm:
                 try:
-                    deployer.deploy(host, cert_pem, key_pem, name)
+                    ltm_deployer.deploy(host, cert_pem, key_pem, name)
                     log.info("Deployed %s to %s", name, host)
-                    summary['deployed'].append(name)
+                    summary['ltm_deployed'].append(f"{name} -> {host}")
                 except Exception as e:
                     log.exception("Failed to deploy to %s: %s", host, e)
                     summary['errors'].append(f"Deploy {name} to {host}: {str(e)}")
+
+            if with_root_pem:
+                for cluster_host in f5_httpd:
+                    try:
+                        members = httpd_deployer.discover_cluster_members(cluster_host)
+                        for member in members:
+                            result = httpd_deployer.deploy_member(member, name, with_root_pem, key_pem)
+                            log.info(
+                                "Deployed HTTPD certificate for %s to %s (%s), presented subject %s",
+                                name,
+                                result['member']['device_name'],
+                                result['member']['management_ip'],
+                                result['verification']['subject'],
+                            )
+                            summary['httpd_deployed'].append(f"{name} -> {result['member']['device_name']}")
+                    except Exception as e:
+                        log.exception("Failed HTTPD deployment for %s on %s: %s", name, cluster_host, e)
+                        summary['errors'].append(f"HTTPD deploy {name} on {cluster_host}: {str(e)}")
             continue
 
         if args.prepopulate:
@@ -389,9 +402,14 @@ def main():
             if args.dry_run:
                 # Dry-run: print the planned actions and skip network interactions.
                 log.info("DRY RUN: would request ACME certificate for %s with domains %s", name, domains)
+                if acme_profile:
+                    log.info("DRY RUN: would request ACME profile %s for %s", acme_profile, name)
                 f5_ltm = get_f5_ltm_targets(cert, config)
                 for host in f5_ltm:
                     log.info("DRY RUN: would deploy %s.crt and %s.key to %s", name, name, host)
+                f5_httpd = get_f5_httpd_targets(cert, config)
+                for cluster_host in f5_httpd:
+                    log.info("DRY RUN: would deploy %s.with-root.pem and %s.key to HTTPD cluster %s", name, name, cluster_host)
                 # continue to next certificate without making network calls
                 continue
 
@@ -444,7 +462,13 @@ def main():
                     log.warning("Failed to remove TXT record for %s: %s", target, e)
 
             try:
-                cert_pem, _, key_pem = acme.obtain_certificate(domains, publish, remove, account_key_path=args.account_key)
+                cert_pem, _, key_pem = acme.obtain_certificate(
+                    domains,
+                    publish,
+                    remove,
+                    account_key_path=args.account_key,
+                    profile=acme_profile,
+                )
             except Error as e:
                 err_msg = f"ACME error for {name}: {e}"
                 print(err_msg)
@@ -490,8 +514,10 @@ def main():
             # Deploy to F5 targets
             # Determine f5 targets: per-cert override, per-zone or global
             f5_ltm = get_f5_ltm_targets(cert, config)
+            f5_httpd = get_f5_httpd_targets(cert, config)
             f5_creds = creds.get('f5', {})
-            deployer = F5LTM(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
+            ltm_deployer = F5LTM(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
+            httpd_deployer = F5HTTPD(f5_creds.get('username'), f5_creds.get('password'), verify_ssl=f5_creds.get('verify_ssl', False))
             # We currently do not have the private key saved separately; if the
             # ACME client returns it we should save and deploy it. This example
             # expects the CSR-generation key to be made available; for now we
@@ -505,14 +531,32 @@ def main():
                             key_pem = kf.read()
                     # use certificate base name; on the F5 the objects will be
                     # named <name>.crt and <name>.key
-                    deployer.deploy(host, cert_pem, key_pem, name)
+                    ltm_deployer.deploy(host, cert_pem, key_pem, name)
                     log.info("Deployed %s to %s", name, host)
+                    summary['ltm_deployed'].append(f"{name} -> {host}")
                 except Exception as e:
                     log.exception("Failed to deploy to %s: %s", host, e)
                     summary['errors'].append(f"Deploy {name} to {host}: {str(e)}")
+            if with_root_pem:
+                for cluster_host in f5_httpd:
+                    try:
+                        members = httpd_deployer.discover_cluster_members(cluster_host)
+                        for member in members:
+                            result = httpd_deployer.deploy_member(member, name, with_root_pem, key_pem)
+                            log.info(
+                                "Deployed HTTPD certificate for %s to %s (%s), presented subject %s",
+                                name,
+                                result['member']['device_name'],
+                                result['member']['management_ip'],
+                                result['verification']['subject'],
+                            )
+                            summary['httpd_deployed'].append(f"{name} -> {result['member']['device_name']}")
+                    except Exception as e:
+                        log.exception("Failed HTTPD deployment for %s on %s: %s", name, cluster_host, e)
+                        summary['errors'].append(f"HTTPD deploy {name} on {cluster_host}: {str(e)}")
 
-    # Print summary if running in default mode (not --prepopulate, not --deploy, not --list)
-    if not (args.prepopulate or args.deploy or args.list):
+    # Print summary for all action modes except --prepopulate and --list.
+    if not (args.prepopulate or args.list):
         print()
         print("=" * 80)
         print("SUMMARY")
@@ -522,10 +566,17 @@ def main():
             print(f"Renewed certificates: {', '.join(summary['renewed'])}")
         if summary['reordered']:
             print(f"Reordered certificates (domain changes): {', '.join(summary['reordered'])}")
-        if summary['deployed']:
-            deployed_unique = list(set(summary['deployed']))
-            print(f"Deployed certificates: {', '.join(deployed_unique)}")
-        if not (summary['renewed'] or summary['reordered'] or summary['deployed']):
+        if summary['ltm_deployed']:
+            ltm_unique = sorted(set(summary['ltm_deployed']))
+            print("LTM deployments:")
+            for item in ltm_unique:
+                print(f"  - {item}")
+        if summary['httpd_deployed']:
+            httpd_unique = sorted(set(summary['httpd_deployed']))
+            print("HTTPD deployments:")
+            for item in httpd_unique:
+                print(f"  - {item}")
+        if not (summary['renewed'] or summary['reordered'] or summary['ltm_deployed'] or summary['httpd_deployed']):
             if summary['errors']:
                 print("No certificates were renewed or deployed due to errors.")
             else:
