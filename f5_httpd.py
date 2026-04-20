@@ -16,6 +16,7 @@ import ssl
 import time
 import requests
 import urllib3
+from typing import Dict, List, Optional, Tuple
 from cryptography import x509
 from urllib3.exceptions import InsecureRequestWarning
 
@@ -80,7 +81,7 @@ class F5HTTPD:
     def cluster_name_from_host(cluster_host: str) -> str:
         return cluster_host.split(".", 1)[0]
 
-    def get_device_management_ips(self, host: str) -> dict[str, dict]:
+    def get_device_management_ips(self, host: str) -> Dict[str, dict]:
         """Return a map of device hostname and short name to management details."""
         data = self._get(host, "/mgmt/tm/cm/device?$select=name,hostname,managementIp")
         devices = {}
@@ -97,7 +98,7 @@ class F5HTTPD:
                 devices.setdefault(short_name, devices[key])
         return devices
 
-    def get_trust_domain_devices(self, host: str) -> list[str]:
+    def get_trust_domain_devices(self, host: str) -> List[str]:
         """Return device names from the trust-domain CA device list."""
         data = self._get(host, "/mgmt/tm/cm/trust-domain?$select=name,caDevices")
         device_names = []
@@ -106,7 +107,7 @@ class F5HTTPD:
                 device_names.append(ca_device.rsplit("/", 1)[-1])
         return device_names
 
-    def discover_cluster_members(self, cluster_host: str) -> list[dict]:
+    def discover_cluster_members(self, cluster_host: str) -> List[dict]:
         """Resolve a shared-IP cluster host into trusted member devices and management IPs."""
         cluster_name = self.cluster_name_from_host(cluster_host)
         cluster_prefix = f"{cluster_name}-"
@@ -129,7 +130,7 @@ class F5HTTPD:
 
         return sorted(members, key=lambda member: member["device_name"] or "")
 
-    def validate_rest_connectivity(self, target: str) -> tuple[bool, str | None]:
+    def validate_rest_connectivity(self, target: str) -> Tuple[bool, Optional[str]]:
         """Confirm a REST target responds."""
         try:
             self._get(target, "/mgmt/tm/sys/version")

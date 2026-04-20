@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from cryptography import x509
 import certifi
 import sys
+from typing import List, Optional, Tuple
 
 # Make the script runnable from any current working directory by ensuring the
 # script directory is on sys.path and by using config/credentials paths
@@ -114,7 +115,7 @@ def expand_domains(domains: list) -> list:
     return expanded
 
 
-def split_pem_certificates(pem_data: bytes) -> list[bytes]:
+def split_pem_certificates(pem_data: bytes) -> List[bytes]:
     blocks = []
     current = []
     inside = False
@@ -138,7 +139,7 @@ def normalize_pem_bundle(pem_data: bytes) -> bytes:
     return b"\n\n".join(blocks) + b"\n"
 
 
-def load_trust_store_certificates() -> list[tuple[x509.Certificate, bytes]]:
+def load_trust_store_certificates() -> List[Tuple[x509.Certificate, bytes]]:
     with open(certifi.where(), 'rb') as f:
         pem_data = f.read()
     certs = []
@@ -147,7 +148,7 @@ def load_trust_store_certificates() -> list[tuple[x509.Certificate, bytes]]:
     return certs
 
 
-def build_with_root_pem(cert_pem: bytes) -> bytes | None:
+def build_with_root_pem(cert_pem: bytes) -> Optional[bytes]:
     cert_blocks = split_pem_certificates(cert_pem)
     if not cert_blocks:
         return None
@@ -175,7 +176,7 @@ def get_f5_httpd_targets(cert: dict, config: dict) -> list:
     return cert.get('f5_httpd') or config.get('f5_httpd') or []
 
 
-def get_acme_profile(cert: dict, config: dict) -> str | None:
+def get_acme_profile(cert: dict, config: dict) -> Optional[str]:
     """Return the ACME profile to request for a certificate, if configured."""
     return cert.get('acme_profile') or config.get('acme_profile')
 

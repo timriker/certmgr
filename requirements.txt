@@ -1,3 +1,4 @@
+# Runtime baseline: Python 3.9.25+
 acme
 cryptography
 josepy

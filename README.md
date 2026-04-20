@@ -1,8 +1,15 @@
 certmgr: ACME -> RFC2136 -> F5 deployer
 =====================================
 
+[Changelog](CHANGELOG.md)
+
 This project is a minimal ACME client + RFC2136 DNS updater used to obtain
 Let's Encrypt certificates and deploy them to F5 BIG-IP systems.
+
+Python compatibility
+- certmgr supports Python 3.9.25 and newer.
+- If you run it as `./certmgr.py`, ensure the `python3` selected by the
+  shebang is Python 3.9.25+.
 
 Key points
 - Uses DNS-01 challenges and will follow CNAMEs: if _acme-challenge.example.com
@@ -61,7 +68,9 @@ Quick start
    real credentials.
 2. Edit `config.yaml` (copy from `example.config.yaml`) to list your certificates,
    domains and F5 deployment targets.
-3. Install dependencies: pip install -r requirements.txt
+3. Install dependencies with Python 3.9.25 or newer:
+
+   `python3 -m pip install -r requirements.txt`
 4. Run:
 
   ./certmgr.py --staging
