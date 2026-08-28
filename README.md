@@ -112,10 +112,6 @@ F5 Configuration
 
 Each certificate can define separate F5 deployment targets:
 
-- `acme_profile`
-  Optional Let's Encrypt ACME profile, such as `tlsclient`, when you need a
-  certificate profile other than the directory default.
-
 - `f5_ltm`
   Traffic-certificate targets. These are the shared-IP or active-node names
   used for the existing LTM/client SSL deployment flow.
@@ -131,7 +127,6 @@ Example:
 ```yaml
 certificates:
   - name: churchofjesuschrist.org
-    acme_profile: tlsclient
     domains:
       - '*.churchofjesuschrist.org'
       - '*.lds.org'
@@ -160,10 +155,6 @@ certmgr writes these local artifacts for each certificate:
   The management-plane chain: leaf certificate plus intermediate certificate(s)
   plus the root certificate. This is the file used for `f5_httpd` deployment.
 
-If `acme_profile` is set, certmgr includes that profile name in the ACME
-new-order request. This is useful for Let's Encrypt's temporary `tlsclient`
-profile when you need TLS Client Auth EKU in addition to TLS Server Auth.
-
 Both PEM bundle files are written with a blank line between certificate blocks
 to accommodate BIG-IP consumers that are sensitive to PEM formatting.
 
@@ -178,9 +169,9 @@ When a certificate entry has `f5_httpd` targets, `./certmgr.py --deploy` will:
 - Push the private key from `certs/<name>.key`
 - Copy the deployed HTTPD certificate bundle to:
   - `/config/gtm/server.crt`
-  - `/config/big3d/client.crt`
 - Restart `httpd`
 - Verify the certificate presented on the management HTTPS endpoint
+- Restart `gtmd` after HTTPD recovers when the node has GTM configuration.
 
 Notes and caveats
 - The ACME interactions use the `acme` library; depending on installed

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog, and this project uses `vMAJOR.MINOR.PATCH`
 git tags for releases.
 
+## [0.1.4] - 2026-08-28
+
+### Changed
+- Restart `gtmd` after HTTPD recovers when GTM is configured on the node.
+
+### Removed
+- Removed support for the `acme_profile` configuration option.
+- Stopped overwriting `/config/big3d/client.crt`.
+
 ## [0.1.3] - 2026-04-20
 
 ### Added

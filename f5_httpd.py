@@ -198,6 +198,15 @@ class F5HTTPD:
         command = f"cp '{escaped_source}' '{escaped_destination}' && chmod 0644 '{escaped_destination}'"
         self.run_bash(host, command)
 
+    def is_gtm_configured(self, host: str) -> bool:
+        """Return whether the node has any GTM configuration."""
+        result = self.run_bash(
+            host,
+            "if tmsh -q list gtm 2>/dev/null | grep -q .; then echo configured; "
+            "else echo unconfigured; fi",
+        )
+        return result.get("commandResult", "").strip() == "configured"
+
     def deploy_member(self, member: dict, base_name: str, with_root_pem: bytes, key_pem: bytes) -> dict:
         rest_target = self.get_preferred_rest_target(member)
         httpd_paths = self.get_httpd_paths(rest_target)
@@ -213,7 +222,7 @@ class F5HTTPD:
         self.copy_download_to_path(rest_target, key_filename, httpd_paths["sslCertkeyfile"], mode="0600")
 
         self.copy_file_to_path(rest_target, httpd_paths["sslCertchainfile"], "/config/gtm/server.crt")
-        self.copy_file_to_path(rest_target, httpd_paths["sslCertchainfile"], "/config/big3d/client.crt")
+        gtm_configured = self.is_gtm_configured(rest_target)
 
         try:
             self.run_bash(rest_target, "bigstart restart httpd")
@@ -224,11 +233,15 @@ class F5HTTPD:
             log.info("HTTPD restart on %s closed the REST connection; verifying service after reconnect", rest_target)
 
         verification = self.wait_for_https_certificate(member)
+        if gtm_configured:
+            self.run_bash(rest_target, "bigstart restart gtmd")
+            log.info("Restarted GTMD on %s because GTM is configured", rest_target)
 
         return {
             "member": member,
             "rest_target": rest_target,
             "httpd_paths": httpd_paths,
+            "gtm_restarted": gtm_configured,
             "verification": verification,
         }
 

@@ -176,11 +176,6 @@ def get_f5_httpd_targets(cert: dict, config: dict) -> list:
     return cert.get('f5_httpd') or config.get('f5_httpd') or []
 
 
-def get_acme_profile(cert: dict, config: dict) -> Optional[str]:
-    """Return the ACME profile to request for a certificate, if configured."""
-    return cert.get('acme_profile') or config.get('acme_profile')
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', default=os.path.join(SCRIPT_DIR, 'config.yaml'))
@@ -279,7 +274,6 @@ def main():
         cert_path = os.path.join('certs', f"{name}.pem")
         with_root_path = os.path.join('certs', f"{name}.with-root.pem")
         key_path = os.path.join('certs', f"{name}.key")
-        acme_profile = get_acme_profile(cert, config)
 
         if args.deploy:
             # Deploy existing certificates without requesting new ones
@@ -403,8 +397,6 @@ def main():
             if args.dry_run:
                 # Dry-run: print the planned actions and skip network interactions.
                 log.info("DRY RUN: would request ACME certificate for %s with domains %s", name, domains)
-                if acme_profile:
-                    log.info("DRY RUN: would request ACME profile %s for %s", acme_profile, name)
                 f5_ltm = get_f5_ltm_targets(cert, config)
                 for host in f5_ltm:
                     log.info("DRY RUN: would deploy %s.crt and %s.key to %s", name, name, host)
@@ -467,8 +459,7 @@ def main():
                     domains,
                     publish,
                     remove,
-                    account_key_path=args.account_key,
-                    profile=acme_profile,
+                    account_key_path=args.account_key
                 )
             except Error as e:
                 err_msg = f"ACME error for {name}: {e}"
