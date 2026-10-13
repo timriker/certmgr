@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on Keep a Changelog, and this project uses `vMAJOR.MINOR.PATCH`
 git tags for releases.
 
+## [0.1.5] - 2026-10-12
+
+### Fixed
+- Remove DNS-01 TXT challenge values after issuance or validation failure while preserving other values at the same name.
+- Skip malformed trust-store certificates with non-positive serial numbers when building certificate bundles.
+
 ## [0.1.4] - 2026-08-28
 
 ### Changed

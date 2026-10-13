@@ -38,8 +38,10 @@ from acme.messages import Error
 import yaml
 from datetime import datetime, timezone
 from cryptography import x509
+from cryptography.utils import CryptographyDeprecationWarning
 import certifi
 import sys
+import warnings
 from typing import List, Optional, Tuple
 
 # Make the script runnable from any current working directory by ensuring the
@@ -144,7 +146,25 @@ def load_trust_store_certificates() -> List[Tuple[x509.Certificate, bytes]]:
         pem_data = f.read()
     certs = []
     for pem_block in split_pem_certificates(pem_data):
-        certs.append((x509.load_pem_x509_certificate(pem_block), pem_block))
+        # Some OS-provided trust bundles still contain legacy certificates
+        # with non-positive serial numbers. They cannot be valid RFC 5280
+        # roots, and cryptography warns now (and will reject them in a future
+        # release), so ignore those entries while keeping valid roots usable.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always', CryptographyDeprecationWarning)
+            try:
+                certificate = x509.load_pem_x509_certificate(pem_block)
+            except ValueError as exc:
+                log.debug("Skipping unreadable trust-store certificate: %s", exc)
+                continue
+        if any(
+            isinstance(warning.message, CryptographyDeprecationWarning)
+            and "serial number which wasn't positive" in str(warning.message)
+            for warning in caught
+        ):
+            log.debug("Skipping trust-store certificate with a non-positive serial number")
+            continue
+        certs.append((certificate, pem_block))
     return certs
 
 
@@ -430,7 +450,7 @@ def main():
                 log.info("Publishing TXT record %s as %s (zone %s): %s", fqdn, target, zname, txt)
                 update_txt_record(server, port, key_name, key, algorithm, zname, target, txt)
 
-            def remove(fqdn):
+            def remove(fqdn, txt):
                 r = creds.get('rfc2136')
                 if not r:
                     log.warning("No rfc2136 in credentials.yaml for %s, skipping removal", fqdn)
@@ -450,7 +470,8 @@ def main():
                 zname = discover_zone_for_name(target, server, key_name, key, algorithm)
                 log.info("Removing TXT record %s as %s (zone %s)", fqdn, target, zname)
                 try:
-                    update_txt_record(server, port, key_name, key, algorithm, zname, target, "")
+                    update_txt_record(server, port, key_name, key, algorithm, zname, target, "",
+                                      delete_txt_value=txt)
                 except Exception as e:
                     log.warning("Failed to remove TXT record for %s: %s", target, e)
 

@@ -222,44 +222,28 @@ class AcmeClient:
                 error_blob = f"ACME order creation failed: {err_msg}{detail}\nTraceback:\n{tb}"
             return b'ACME_VALIDATION_ERROR:' + error_blob.encode(errors='replace'), b'', b''
 
-        # Handle authorizations and dns-01 challenges
-        for authz in getattr(order, 'authorizations', []):
-            chall = None
-            for c in authz.body.challenges:
-                if c.chall.typ == "dns-01":
-                    chall = c
-                    break
-            if not chall:
-                raise RuntimeError("No dns-01 challenge available for %s" % authz)
-
-            # Compute validation (TXT) value for dns-01
-            validation = chall.chall.validation(jwk)
-
-            # Determine the fqdn to set: _acme-challenge.<domain>
-            domain = authz.body.identifier.value
-            fqdn = f"_acme-challenge.{domain}"
-
-            # Ask caller to publish the TXT record (may need CNAME handling there)
-            publish_challenge(fqdn, validation)
-
-        # Wait for DNS propagation before validation
-        import time
-        log.info(f"Waiting {self.dns_wait_seconds} seconds for DNS propagation...")
-        time.sleep(self.dns_wait_seconds)
-
-        # Now tell ACME server we are ready for each challenge
-        for authz in getattr(order, 'authorizations', []):
-            chall = None
-            for c in authz.body.challenges:
-                if c.chall.typ == "dns-01":
-                    chall = c
-                    break
-            if chall:
-                response = chall.response(jwk)
-                acme.answer_challenge(chall, response)
-
-        # After responding to all challenges, poll order until valid
+        published_challenges = []
         try:
+            # Publish every DNS-01 value before asking the CA to validate.
+            for authz in getattr(order, 'authorizations', []):
+                chall = next((c for c in authz.body.challenges if c.chall.typ == "dns-01"), None)
+                if not chall:
+                    raise RuntimeError("No dns-01 challenge available for %s" % authz)
+                validation = chall.chall.validation(jwk)
+                fqdn = f"_acme-challenge.{authz.body.identifier.value}"
+                publish_challenge(fqdn, validation)
+                published_challenges.append((fqdn, validation))
+
+            # Wait for DNS propagation before validation.
+            import time
+            log.info("Waiting %s seconds for DNS propagation...", self.dns_wait_seconds)
+            time.sleep(self.dns_wait_seconds)
+
+            for authz in getattr(order, 'authorizations', []):
+                chall = next((c for c in authz.body.challenges if c.chall.typ == "dns-01"), None)
+                if chall:
+                    acme.answer_challenge(chall, chall.response(jwk))
+
             finalized = acme.poll_and_finalize(order)
         except acme_errors.ValidationError as e:
             failed_domains = []
@@ -294,6 +278,12 @@ class AcmeClient:
         except Exception as e:
             log.error("Certificate validation failed: %s", e)
             return b'ACME error: ' + str(e).encode(), b'', b''
+        finally:
+            for fqdn, validation in reversed(published_challenges):
+                try:
+                    remove_challenge(fqdn, validation)
+                except Exception as e:
+                    log.warning("Failed to remove DNS challenge for %s: %s", fqdn, e)
 
         if hasattr(finalized, 'fullchain_pem'):
             cert_pem = finalized.fullchain_pem.encode() if isinstance(finalized.fullchain_pem, str) else finalized.fullchain_pem
@@ -310,9 +300,5 @@ class AcmeClient:
             format=serialization.PrivateFormat.TraditionalOpenSSL,
             encryption_algorithm=serialization.NoEncryption()
         )
-
-        # Clean up challenges by calling remove_challenge for each domain
-        for d in domains:
-            remove_challenge(f"_acme-challenge.{d}")
 
         return cert_pem, chain_pem, key_pem

@@ -176,15 +176,17 @@ def update_txt_record(server: str,
                       zone: str,
                       name: str,
                       txt_value: str,
-                      ttl: int = 60) -> None:
-    """Add/replace a TXT record `name` in `zone` on the DNS server.
+                      ttl: int = 60,
+                      delete_txt_value: Optional[str] = None) -> None:
+    """Add a TXT record, or delete a specific TXT value, in ``zone``.
 
     - server: target authoritative DNS server ip/host
     - key_name/key: TSIG key name and base64 key string (optional)
     - algorithm: e.g. 'hmac-sha256' (optional)
     - zone: DNS zone to update (e.g. example.com)
     - name: full name to set (e.g. _acme-challenge.example.com.) or relative name
-    - txt_value: the TXT value (without surrounding quotes)
+    - txt_value: the TXT value to add (without surrounding quotes); empty for deletion
+    - delete_txt_value: when set, delete only this TXT value and preserve other values
     """
     # Prepare candidate key names (try with and without trailing dot).
     candidates = [None]
@@ -245,14 +247,18 @@ def update_txt_record(server: str,
                     relative_name = name
                     if name.endswith('.' + zone):
                         relative_name = name[:-(len(zone) + 1)]
-                    # Delete existing records
-                    #u.delete(relative_name, 'TXT')
-                    # Only add new value if txt_value is non-empty (for removal, just delete)
-                    if txt_value:
+                    if delete_txt_value is not None:
+                        # ACME authorizations can share a name. Delete just this
+                        # challenge token so other active validations survive.
+                        u.delete(relative_name, 'TXT', f'"{delete_txt_value}"')
+                        log.debug("Sending DNS delete to %s:%s for zone %s: %s value (key=%s)",
+                                  ip, port, zone, relative_name, candidate)
+                    elif txt_value:
                         u.add(relative_name, ttl, 'TXT', txt_value)
                         log.debug("Sending DNS update to %s:%s for zone %s: %s -> %s (key=%s)",
                                   ip, port, zone, relative_name, txt_value, candidate)
                     else:
+                        u.delete(relative_name, 'TXT')
                         log.debug("Sending DNS delete to %s:%s for zone %s: %s (key=%s)",
                                   ip, port, zone, relative_name, candidate)
 
